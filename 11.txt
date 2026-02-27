@@ -1,0 +1,154 @@
+qwen/qwen3-32b
+    Limits
+        Requests
+        60 / minute
+        1K / day
+
+        Tokens
+        6K / minute
+        500K / day
+
+
+canopylabs/orpheus-arabic-saudi
+    Limits
+        Requests
+        10 / minute
+        100 / day
+        
+        Tokens
+        1.2K / minute
+        3.6K / day
+
+
+canopylabs/orpheus-v1-english
+    Limits
+        Requests
+        10 / minute
+        100 / day
+
+        Tokens
+        1.2K / minute
+        3.6K / day
+
+groq/compound
+    Limits
+        Requests
+        30 / minute
+        250 / day
+
+groq/compound-mini
+    Limits
+        Requests
+        30 / minute
+        250 / day
+
+llama-3.1-8b-instant
+    Limits
+        Requests
+        30 / minute
+        14.4K / day
+        
+        Tokens
+        6K / minute
+        500K / day
+
+llama-3.3-70b-versatile
+    Limits
+        Requests
+        30 / minute
+        1K / day
+
+        Tokens
+        12K / minute
+        100K / day
+
+meta-llama/llama-4-maverick-17b-128e-instruct
+    Limits
+        Requests
+        30 / minute
+        1K / day
+
+        Tokens
+        6K / minute
+        500K / day
+
+meta-llama/llama-4-scout-17b-16e-instruct
+    Limits
+        Requests
+        30 / minute
+        1K / day
+
+        Tokens
+        30K / minute
+        500K / day
+
+meta-llama/llama-guard-4-12b
+    Limits
+        Requests
+        30 / minute
+        14.4K / day
+       
+       Tokens
+        15K / minute
+        500K / day
+
+meta-llama/llama-prompt-guard-2-22m
+    Limits
+        Requests
+        30 / minute
+        14.4K / day
+
+        Tokens
+        15K / minute
+        500K / day
+
+meta-llama/llama-prompt-guard-2-86m
+    Limits
+        Requests
+        30 / minute
+        14.4K / day
+        
+        Tokens
+        15K / minute
+        500K / day
+
+moonshotai/kimi-k2-instruct-0905
+    Limits
+        Requests
+        60 / minute
+        1K / day
+        
+        Tokens
+        10K / minute
+        300K / day
+
+openai/gpt-oss-120b
+    Limits
+        Requests
+        30 / minute
+        1K / day
+        
+        Tokens
+        8K / minute
+        200K / day
+
+openai/gpt-oss-20b
+    Limits
+        Requests
+        30 / minute
+        1K / day
+
+        Tokens
+        8K / minute
+        200K / day
+
+openai/gpt-oss-safeguard-20b
+    Limits
+        Requests
+        30 / minute
+        1K / day
+
+        Tokens
+        8K / minute
+        200K / day
+

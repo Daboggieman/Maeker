@@ -1,0 +1,81 @@
+{
+  "name": "Maker Studio 2.0 - Importable",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "fileUri": "C:\\Users\\RAPH-EXT\\maker\\topics.json"
+      },
+      "id": "2",
+      "name": "Read Sample Feed",
+      "type": "n8n-nodes-base.readBinaryFile",
+      "typeVersion": 1,
+      "position": [220, 0]
+    },
+    {
+      "parameters": {
+        "operation": "json",
+        "dataPropertyName": "data",
+        "splitIntoItems": true,
+        "destinationPropertyName": ""
+      },
+      "id": "3",
+      "name": "Extract From File",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [440, 0]
+    },
+    {
+      "parameters": {
+        "command": "=c:\\Users\\RAPH-EXT\\maker\\venv\\Scripts\\python.exe c:\\Users\\RAPH-EXT\\maker\\maker_studio.py --topic \"{{ $json.data[0].topic }}\" --category \"{{ $json.data[0].category }}\" --json --produce 2> c:\\Users\\RAPH-EXT\\maker\\logs\\maker_error.log"
+      },
+      "id": "4",
+      "name": "Run Maker Engine",
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [660, 0]
+    }
+  ],
+  "connections": {
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read Sample Feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Sample Feed": {
+      "main": [
+        [
+          {
+            "node": "Extract From File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract From File": {
+      "main": [
+        [
+          {
+            "node": "Run Maker Engine",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  }
+}

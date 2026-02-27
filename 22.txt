@@ -1,0 +1,53 @@
+# maker Studio – BUILD DOCUMENT
+
+## 1. PROJECT OVERVIEW
+
+**maker Studio** is an advanced content automation suite designed to bridge the gap between historical accuracy and modern digital engagement. The system specializes in:
+
+- **Historical Content**: Meticulous reconstruction of Bible events and world history (rise/fall of empires, world-changing wars, pivotal figures) with **automated AI fact-checking**.
+- **Automated News**: Fetching breaking news stories or **manually inputting custom topics** to generate engaging content.
+- **Multilevel Production**: End-to-end automation from script generation to AI voiceovers and high-quality video rendering, including **dynamic algorithm-optimized hooks**.
+
+## 2. OBJECTIVES
+
+- **Universal Reach**: Automate high-quality content production for YouTube (Long-form) and TikTok/Shorts (Vertical) with **multi-choice viral hooks**.
+- **Absolute Integrity**: Ensure historical and biblical accuracy via a **secondary LLM fact-checking layer**.
+- **Human-in-the-Loop**: Integrated manual approval stages and **manual topic override** for premium quality control.
+- **Policy Compliance**: Fully compliant with YouTube and TikTok community guidelines and monetization policies.
+- **Scalable Architecture**: Built for growth, allowing for multi-channel management from a single instance.
+
+## 3. TECH STACK (The Hybrid Power-House)
+
+- **Orchestration & Director**: **n8n** (Visual workflow management, scheduling, and API triggers)
+- **Production & Processing Engine**: **Python** (Handles complex AI logic, FFmpeg, and data processing)
+- **Database**: MongoDB Atlas (Unified storage for metadata and job tracking)
+- **Intelligence Layer (AI)**:
+  - OpenAI GPT-4o / Claude 3.5 Sonnet / Gemini 1.5 Pro
+  - _Free/Open Source Alternatives_: DeepSeek via Python or Ollama.
+- **Voice Synthesis**:
+  - ElevenLabs (Premium) / Edge-TTS (Free Python integration).
+- **Video Engine**: **FFmpeg-python** (Scripted high-end video manipulation)
+- **Storage**: Local filesystem for media assets and temporary work.
+- **Upload Strategy**: Manual verification flow + automated API triggers via n8n.
+
+## 4. SYSTEM ARCHITECTURE & WORKFLOW
+
+```mermaid
+graph TD
+    A1[News APIs & Bible Data] --> B{n8n Orchestrator}
+    A2[MANUAL TOPIC INPUT] --> B
+    B -->|Trigger Job| C[Python Processing Suite]
+    C -->|AI Logic| D[Script & Voice Generation]
+    D --> E[FFmpeg Video Assembly]
+    E -->|Success Callback| B
+    B --> F{Quality Assurance: Manual Approval}
+    F -->|Approved| G[Social Media Upload Pipeline]
+    F -->|Rejected| C
+    G --> H[(MongoDB Atlas: Persistence)]
+```
+
+## 5. CONTENT STRATEGY
+
+- **News**: 4-6 minute concise deep dives and 60-second "Breaking" shorts.
+- **History**: "The Fall of Empires" series - episodic, visually rich storytelling.
+- **Bible**: Chronological historical events based on archaeological and textual evidence.

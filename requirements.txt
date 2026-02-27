@@ -1,0 +1,13 @@
+pymongo
+openai
+python-dotenv
+ffmpeg-python
+moviepy
+requests
+beautifulsoup4
+edge-tts
+pydantic
+google-genai
+groq
+ollama
+google-cloud-texttospeech

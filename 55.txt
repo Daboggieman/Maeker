@@ -1,0 +1,50 @@
+# maker Studio – HYBRID (n8n + Python) ROADMAP
+
+This roadmap outlines the dual-track implementation using **n8n** for orchestration and **Python** for specialized processing.
+
+## PHASE 1: HYBRID INFRASTRUCTURE
+- [x] **1.1 Orchestration Setup (n8n)**
+    - [x] Install n8n locally and set up basic Webhook triggers.
+    - [x] Create folder structure for data hand-off (e.g., `/jobs/pending`).
+- [x] **1.2 Processing Setup (Python)**
+    - [x] Initialize Python environment and core utility classes (`FFmpegEngine`, `AIAgent`).
+    - [x] Create simple Python script to listen for n8n triggers or a job queue.
+- [x] **1.3 Database & Asset Links**
+    - [x] Link n8n and Python to a shared MongoDB Atlas instance.
+    - [x] Configure shared local storage for media assets.
+
+## PHASE 2: DATA & INTELLIGENCE PIPELINE
+- [ ] **2.1 Sourcing (n8n)**
+    - [ ] Build n8n workflows for News APIs and Manual Topic injection.
+    - [ ] Pass new topics to Python for processing.
+- [x] **2.2 AI Creative Engine (Python)**
+    - [x] Develop expert prompt templates for News, Bible, and History in Python.
+    - [x] **Implement Multi-Agent Fact-Checking**: Build a secondary LLM pass to verify historical/biblical dates and events.
+    - [x] **Dynamic Hook Generator**: Generate 3 high-impact "Hook" variations for Shorts/TikTok content.
+
+## PHASE 3: PRODUCTION & OUTPUT
+- [x] **3.1 Audio-Visual Generation (Python)**
+    - [x] Python script for Voiceovers (Edge-TTS).
+    - [x] Implement FFmpeg video assembly (Long-form & Vertical).
+- [ ] **3.2 Control & Approval (n8n)**
+    - [ ] n8n dashboard for Approval/Rejection: View/Select best Hook and Approve Fact-Check status.
+
+## PHASE 4: SCALABILITY & POLISH
+- [ ] **4.1 Audit & Policy Sync**
+    - [ ] Sync job status between n8n and Python via MongoDB.
+    - [ ] Final compliance check for YouTube policies.
+
+## PHASE 5: HYPER-REALISM & EXPANSION
+- [ ] **5.1 Premium Voice Overhaul (Speechify)**
+    - [ ] Implement Speechify Voice Cloning for a unique "Studio Identity".
+- [ ] **5.2 Cinematic Video Generation**
+    - [ ] Build logic to replace static images with AI-generated cinematic clips.
+
+---
+
+### Current Technical Configuration (As of Phase 1-3 Implementation)
+- **Primary LLM**: Groq (`llama-3.3-70b-versatile`)
+- **Secondary LLM**: OpenRouter (`google/gemini-2.0-flash-001`)
+- **Fallback LLM**: Ollama (`llama3.2`)
+- **Voice**: Edge TTS (Free)
+- **Image Gen**: Generic Fallback / Audio-Only Support
