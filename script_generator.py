@@ -37,14 +37,14 @@ class ScriptGenerator:
         """Generates a video script. Hierarchy: Groq (Primary) -> Groq (Secondary) -> OpenRouter -> Ollama."""
         
         category_prompts = {
-            "Bible": "You are a biblical scholar for maker Studio. Focus on historical accuracy and theological significance. Keep the script VERY SHORT (under 150 words).",
-            "History": "You are a historian for maker Studio. Focus on pivotal figures and events. Keep the script VERY SHORT (under 150 words).",
-            "News": "You are a news anchor for maker Studio. Focus on facts and concise delivery. Keep the script VERY SHORT (under 150 words).",
-            "General": "You are a content creator for maker Studio. Create a concise video script. Keep the script VERY SHORT (under 150 words)."
+            "Bible": "You are a biblical scholar for Maker Studio. Write a highly detailed, extremely educational, and highly entertaining narrative focused on historical accuracy. You MUST use simple, everyday 5th-grade English. Do not use unusual, sophisticated, or complex words. DO NOT USE structural tags like 'Hook:' or 'Main Content:'. Output must be pure spoken English.",
+            "History": "You are a historian for Maker Studio. Write a highly detailed, extremely educational, and highly entertaining narrative focusing on pivotal figures and events. You MUST use simple, everyday 5th-grade English. Do not use unusual, sophisticated, or complex words. DO NOT USE structural tags. Output must be pure spoken English.",
+            "News": "You are a news anchor for Maker Studio. Write a highly detailed, extremely entertaining narrative focusing on facts. You MUST use simple, everyday 5th-grade English. Do not use unusual, sophisticated, or complex words. DO NOT USE structural tags. Output must be pure spoken English.",
+            "General": "You are a master storyteller for Maker Studio. Write a highly detailed, extremely entertaining, and very educative script. You MUST use simple, everyday conversational 5th-grade English that anyone can easily understand. Avoid sophisticated or complex vocabulary. DO NOT USE structural tags like 'Hook:', brackets, or bullet points. It must read like a natural, flowing story."
         }
 
         system_prompt = category_prompts.get(category, category_prompts["General"])
-        user_prompt = f"Topic: {topic}\nFormat: Hook, Main Content, CTA. STRICTLY LIMIT response to 150 words total."
+        user_prompt = f"Topic: {topic}\nWrite a fluid, deeply detailed, and very long script. Use highly accessible 5th-grade English. Do NOT use any headings, brackets, or bullet points. It must read entirely as continuous, engaging spoken narration."
 
         # 1. Try Groq (Primary & Secondary Failover)
         if self.groq_client:
@@ -59,11 +59,9 @@ class ScriptGenerator:
                     )
                     return chat_completion.choices[0].message.content
                 except Exception as e:
-                    print(f"ERROR: Groq model {current_model} failed: {e}.")
-                    if current_model == self.groq_model_secondary:
-                        print("Both Groq models failed. Falling back to OpenRouter.")
+                    print(f"WARN: Groq model {current_model} failed: {e}. Trying fallback...")
 
-        # 2. Try OpenRouter (Secondary)
+        # 2. Try OpenRouter (Secondary Failover)
         if self.openrouter_client:
             try:
                 # Use a free/cheap model on OpenRouter as fallback
@@ -81,9 +79,9 @@ class ScriptGenerator:
                 )
                 return response.choices[0].message.content
             except Exception as e:
-                print(f"ERROR: OpenRouter failed: {e}. Falling back to Ollama.")
+                print(f"WARN: OpenRouter fallback failed: {e}. Trying Ollama...")
 
-        # 3. Try Ollama (Fallback)
+        # 3. Try Ollama (Ultimate Offline Fallback)
         try:
             ollama_response = requests.post(
                 f"{self.ollama_url}/api/generate",
@@ -93,9 +91,84 @@ class ScriptGenerator:
             if ollama_response.status_code == 200:
                 return ollama_response.json().get("response", "")
         except Exception as e:
-            print(f"ERROR: Ollama fallback failed: {e}.")
+            print(f"ERROR: Ollama fallback failed: {e}")
 
-        return "Error: Could not generate script with any provider."
+        return "Error: Could not generate script from any provider."
+
+    def generate_scenes(self, script):
+        """Breaks a script into scenes with image prompts. Hierarchy: Groq -> OpenRouter -> Ollama."""
+        import json
+        system_prompt = "You are an expert video director. Break the script into logical, sequential scenes."
+        user_prompt = f"""
+Analyze the following script and break it down into scenes.
+Return ONLY a JSON object with a single key "scenes" containing an array of scene objects. Do not use markdown blocks.
+
+Each scene object must have:
+1. "narration": The EXACT chunk of text from the script to be spoken. Do not summarize, skip, or change the text. Every single word of the script must be included across the narrations.
+2. "image_prompt": A highly detailed visual prompt for an AI image generator describing the scene (cinematic, highly detailed, photorealistic).
+
+Example format:
+{{
+  "scenes": [
+    {{
+      "narration": "In the heart of the ancient city, long before the empires of dust...",
+      "image_prompt": "Cinematic wide shot of an ancient bustling city, golden hour, highly detailed."
+    }}
+  ]
+}}
+
+Script:
+{script}
+"""
+        
+        # 1. Try Groq (Primary & Secondary)
+        if self.groq_client:
+            for current_model in [self.model_name, self.groq_model_secondary]:
+                try:
+                    chat_completion = self.groq_client.chat.completions.create(
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        model=current_model,
+                        response_format={"type": "json_object"}
+                    )
+                    return json.loads(chat_completion.choices[0].message.content).get("scenes", [])
+                except Exception as e:
+                    print(f"ERROR: Groq model {current_model} failed for scenes: {e}.")
+
+        # 2. Try OpenRouter (Secondary)
+        if self.openrouter_client:
+            try:
+                fallback_model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
+                response = self.openrouter_client.chat.completions.create(
+                    model=fallback_model,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": user_prompt}
+                    ]
+                )
+                text = response.choices[0].message.content
+                # Very basic cleanup in case of markdown
+                text = text.replace("```json", "").replace("```", "").strip()
+                return json.loads(text).get("scenes", [])
+            except: pass
+
+        # 3. Try Ollama (Fallback)
+        try:
+            response = requests.post(
+                f"{self.ollama_url}/api/generate",
+                json={"model": "llama3.2", "prompt": f"{system_prompt}\n\n{user_prompt}", "stream": False, "format": "json"},
+                timeout=30
+            )
+            if response.status_code == 200:
+                text = response.json().get("response", "{}")
+                return json.loads(text).get("scenes", [])
+        except Exception as e:
+            print(f"ERROR: Ollama fallback failed for scenes: {e}.")
+
+        # Ultimate fallback: Make the whole script one scene
+        return [{"narration": script, "image_prompt": "Cinematic high-quality visual", "tone": "informative"}]
 
     def generate_hooks(self, script):
         """Generates 3 viral hooks. Hierarchy: Groq (Primary) -> Groq (Secondary) -> OpenRouter -> Ollama."""
