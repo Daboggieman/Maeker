@@ -1,7 +1,6 @@
 @echo off
 :: ============================================================
-::  MAKER STUDIO — Interactive Job Launcher
-::  Double-click this file to start a new production session.
+::  MAKER STUDIO — AI video generator
 :: ============================================================
 cd /d "%~dp0"
 
@@ -23,13 +22,13 @@ if not exist "%SCRIPT_PATH%" (
 cls
 echo.
 echo  ============================================================
-echo   MAKER STUDIO  ^|  Interactive Production Launcher
+echo   MAEKER STUDIO  ^| COR
 echo  ============================================================
 echo.
 
 :: ── Step 1 : Topic ──────────────────────────────────────────
 :ASK_TOPIC
-echo  What topic would you like to produce a video on?
+echo  insert Topic
 echo.
 set /p "TOPIC=  >> Topic: "
 if "%TOPIC%"=="" (
@@ -102,8 +101,9 @@ echo.
 set /p "CONFIRM=  Start production? [Y/N]: "
 if /i not "%CONFIRM%"=="Y" (
     echo.
-    echo  Production cancelled.
-    pause & exit /b 0
+    echo  Starting over — let's pick a new topic.
+    echo.
+    goto ASK_TOPIC
 )
 
 echo.
