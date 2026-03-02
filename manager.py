@@ -67,8 +67,11 @@ class JobManager:
                 logger.warning(f"Retry {i+1}/{retries} failed: {e}. Retrying in {delay}s...")
                 await asyncio.sleep(delay)
 
-    async def run_job(self, topic, category, produce=True):
+    async def run_job(self, topic, category, produce=True, voice=None):
         self.state = {"topic": topic, "category": category, "status": "Started"}
+        if voice:
+            self.v_engine.voice_name = voice
+            logger.info(f"Using voice: {voice}")
         self._notify(f"Starting job for topic: {topic}")
 
         try:
