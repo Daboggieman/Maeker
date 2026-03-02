@@ -8,6 +8,7 @@ cd /d "%~dp0"
 SET "PYTHON_EXE=c:\Users\RAPH-EXT\maker\venv\Scripts\python.exe"
 SET "SCRIPT_PATH=c:\Users\RAPH-EXT\maker\maker_studio.py"
 SET "PICK_VOICE=c:\Users\RAPH-EXT\maker\pick_voice.py"
+SET "VOICE_TMP=%TEMP%\maker_voice_pick.txt"
 
 :: ── Sanity check ────────────────────────────────────────────
 if not exist "%PYTHON_EXE%" (
@@ -49,46 +50,43 @@ echo     4. Crime            9. Biography
 echo     5. Society         10. Other (type your own)
 echo.
 set /p "CAT_INPUT=  >> Category (number or name): "
-if "%CAT_INPUT%"=="" SET "CATEGORY=History"
-if "%CAT_INPUT%"=="1"  SET "CATEGORY=History"
-if "%CAT_INPUT%"=="2"  SET "CATEGORY=Politics"
-if "%CAT_INPUT%"=="3"  SET "CATEGORY=Culture"
-if "%CAT_INPUT%"=="4"  SET "CATEGORY=Crime"
-if "%CAT_INPUT%"=="5"  SET "CATEGORY=Society"
-if "%CAT_INPUT%"=="6"  SET "CATEGORY=Science"
-if "%CAT_INPUT%"=="7"  SET "CATEGORY=Technology"
-if "%CAT_INPUT%"=="8"  SET "CATEGORY=Business"
-if "%CAT_INPUT%"=="9"  SET "CATEGORY=Biography"
-:: If user typed a name (not a number 1-9 or empty), use it verbatim
+
+if "%CAT_INPUT%"==""  SET "CATEGORY=History"   & goto CAT_DONE
+if "%CAT_INPUT%"=="1" SET "CATEGORY=History"   & goto CAT_DONE
+if "%CAT_INPUT%"=="2" SET "CATEGORY=Politics"  & goto CAT_DONE
+if "%CAT_INPUT%"=="3" SET "CATEGORY=Culture"   & goto CAT_DONE
+if "%CAT_INPUT%"=="4" SET "CATEGORY=Crime"     & goto CAT_DONE
+if "%CAT_INPUT%"=="5" SET "CATEGORY=Society"   & goto CAT_DONE
+if "%CAT_INPUT%"=="6" SET "CATEGORY=Science"   & goto CAT_DONE
+if "%CAT_INPUT%"=="7" SET "CATEGORY=Technology" & goto CAT_DONE
+if "%CAT_INPUT%"=="8" SET "CATEGORY=Business"  & goto CAT_DONE
+if "%CAT_INPUT%"=="9" SET "CATEGORY=Biography" & goto CAT_DONE
 if "%CAT_INPUT%"=="10" (
     echo.
     set /p "CATEGORY=  >> Enter your own category: "
+    if "%CATEGORY%"=="" SET "CATEGORY=History"
+    goto CAT_DONE
 )
-:: Catch raw text entries  (not one of the shortcuts above)
-for %%N in (1 2 3 4 5 6 7 8 9 10) do if "%CAT_INPUT%"=="%%N" goto CAT_DONE
-if not "%CAT_INPUT%"=="" if not defined CATEGORY SET "CATEGORY=%CAT_INPUT%"
+:: User typed a raw category name
+SET "CATEGORY=%CAT_INPUT%"
 :CAT_DONE
-if "%CATEGORY%"=="" SET "CATEGORY=History"
 
 :: ── Step 3 : Voice selection ────────────────────────────────
 echo.
 echo  ------------------------------------------------------------
-echo  Now finding the best bold male narrative voices...
-echo.
 
-:: Run pick_voice.py and capture the CHOSEN_VOICE=... line
-SET "CHOSEN_VOICE="
-FOR /F "tokens=1,* delims==" %%A IN ('"%PYTHON_EXE%" "%PICK_VOICE%" 2^>^&1') DO (
-    IF "%%A"=="CHOSEN_VOICE" SET "CHOSEN_VOICE=%%B"
-    :: also echo every line that is NOT the CHOSEN_VOICE token
-    IF NOT "%%A"=="CHOSEN_VOICE" echo %%A=%%B
-)
-:: Some lines have no = sign — echo them too
-FOR /F "eol=C delims=" %%L IN ('"%PYTHON_EXE%" "%PICK_VOICE%" 2^>^&1 ^| findstr /v "CHOSEN_VOICE="') DO (
-    echo %%L
-)
+:: Delete any stale temp file
+if exist "%VOICE_TMP%" del "%VOICE_TMP%"
 
-:: Fallback if something went wrong
+:: Run pick_voice.py — it handles all user interaction and writes the result
+"%PYTHON_EXE%" "%PICK_VOICE%" --out "%VOICE_TMP%"
+
+:: Read chosen voice from temp file
+SET "CHOSEN_VOICE=George"
+if exist "%VOICE_TMP%" (
+    set /p CHOSEN_VOICE=<"%VOICE_TMP%"
+    del "%VOICE_TMP%"
+)
 if "%CHOSEN_VOICE%"=="" SET "CHOSEN_VOICE=George"
 
 :: ── Step 4 : Confirm & start ────────────────────────────────
