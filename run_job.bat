@@ -107,7 +107,7 @@ if /i not "%CONFIRM%"=="Y" (
 )
 
 echo.
-echo  [MAKER STUDIO] Starting production — this may take several minutes.
+echo  [MAKER STUDIO] Starting production - this may take several minutes.
 echo  ============================================================
 echo.
 

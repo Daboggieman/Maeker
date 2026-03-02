@@ -32,7 +32,10 @@ class VoiceEngine:
             if response.status_code == 200:
                 voices = response.json().get("voices", [])
                 for v in voices:
-                    if v.get("name", "").lower() == self.voice_name.lower():
+                    api_name = v.get("name", "")
+                    # Match on prefix: "Roger" matches "Roger - Laid-Back, Casual, Resonant"
+                    if api_name.lower() == self.voice_name.lower() or \
+                       api_name.lower().startswith(self.voice_name.lower() + " -"):
                         self.cached_voice_id = v.get("voice_id")
                         return self.cached_voice_id
             print(f"WARN: Could not find ElevenLabs voice '{self.voice_name}'. Using default.")
@@ -60,7 +63,7 @@ class VoiceEngine:
             }
             data = {
                 "text": clean_text,
-                "model_id": "eleven_monolingual_v1",
+                "model_id": "eleven_turbo_v2_5",
                 "voice_settings": {"stability": 0.5, "similarity_boost": 0.5}
             }
             try:

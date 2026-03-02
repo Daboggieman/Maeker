@@ -110,9 +110,9 @@ class JobManager:
                 scene_assets = []
                 assets_dir = os.getenv("ASSETS_DIR", "assets")
                 
-                # Sanitize topic for folder names (e.g., "The Culture Of Ancient Egypt" -> "the_culture_of_ancient_egypt")
+                # Sanitize topic for folder names and truncate to avoid Windows MAX_PATH limit
                 import re
-                topic_slug = re.sub(r'[^a-zA-Z0-9]', '_', topic.lower()).strip('_')
+                topic_slug = re.sub(r'[^a-zA-Z0-9]', '_', topic.lower()).strip('_')[:50].rstrip('_')  # type: ignore[misc]
                 
                 # Create topic-specific subfolders
                 topic_audio_dir = os.path.join(assets_dir, "audio", topic_slug)
@@ -127,17 +127,21 @@ class JobManager:
                     
                     if not narration:
                         continue
-                        
-                    # Voice (Saved in topic subfolder, narrator is now consistent)
-                    audio_name = f"scene_{index}.mp3"
-                    audio_path = os.path.join(topic_audio_dir, audio_name)
-                    await self._with_retry(self.v_engine.generate_voice, narration, audio_path)
                     
-                    # Image (Saved in topic subfolder via VideoCreator)
+                    # 1. IMAGE FIRST — skip scene entirely if this fails (saves TTS tokens)
                     if not image_prompt:
                         image_prompt = f"A professional cinematic visual for: {topic}"
                     image_name = f"scene_{index}"
                     image_path_out = await self._with_retry(self.v_creator.generate_image, image_prompt, image_name, topic_folder=topic_images_dir)
+                    
+                    if not image_path_out:
+                        logger.warning(f"Scene {index+1}: Image failed — skipping audio to preserve TTS quota.")
+                        continue
+                    
+                    # 2. AUDIO — only runs if image succeeded
+                    audio_name = f"scene_{index}.mp3"
+                    audio_path = os.path.join(topic_audio_dir, audio_name)
+                    await self._with_retry(self.v_engine.generate_voice, narration, audio_path)
                     
                     scene_assets.append({
                         "audio": audio_path,

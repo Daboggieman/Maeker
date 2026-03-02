@@ -19,12 +19,10 @@ class VideoCreator:
     def generate_image(self, prompt, output_name, topic_folder=None):
         """Generates an image using the premium gen.pollinations.ai API with model failover."""
         import time
-        import os
         api_key = os.getenv("POLLINATIONS_API_KEY")
         max_retries = 3
         
-        # Models as requested: zimage (primary), flux (secondary)
-        models = ["zimage", "flux"]
+        models = ["flux", "zimage", "imagen-4"]
         
         for attempt in range(max_retries):
             # Alternate model if first one fails
@@ -41,12 +39,17 @@ class VideoCreator:
                 
                 output_path = os.path.join(folder_path, f"{output_name}.jpg")
                 
-                # Polite delay
-                time.sleep(2.0)
+                # intentional Polite delay
+                time.sleep(3.5)
                 
                 headers = {}
                 if api_key:
                     headers["Authorization"] = f"Bearer {api_key}"
+                
+                url = (
+                    f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+                    f"?model={model}&seed={seed}&width=1280&height=720&nologo=true"
+                )
                 
                 response = requests.get(url, headers=headers, timeout=45)
                 

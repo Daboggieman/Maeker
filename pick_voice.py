@@ -21,7 +21,7 @@ MALE_LABELS = {"male"}
 
 def score_voice(voice: dict) -> int:
     """Score a voice by how well it fits bold male narrative style."""
-    labels = voice.get("labels", {})
+    labels: dict[str, str] = voice.get("labels", {})
     description = " ".join([
         labels.get("description", ""),
         labels.get("use_case", ""),
@@ -29,21 +29,19 @@ def score_voice(voice: dict) -> int:
         voice.get("name", ""),
     ]).lower()
 
-    score = 0
+    score: int = 0
     gender = labels.get("gender", "").lower()
     if gender in MALE_LABELS:
         score += 10
     elif gender and gender not in MALE_LABELS:
         score -= 20
 
-    for kw in NARRATIVE_KEYWORDS:
-        if kw in description:
-            score += 3
+    keyword_score: int = sum(3 for kw in NARRATIVE_KEYWORDS if kw in description)
 
-    return score
+    return score + keyword_score
 
 
-def fetch_voices() -> list:
+def fetch_voices() -> list[dict]:
     """Fetch all available voices from ElevenLabs."""
     if not ELEVENLABS_API_KEY:
         print("[ERROR] ELEVENLABS_API_KEY not found in .env", file=sys.stderr)
@@ -83,7 +81,7 @@ def main():
         return
 
     # Score, sort, take top 50
-    scored = sorted(all_voices, key=score_voice, reverse=True)[:50]
+    scored: list[dict] = sorted(all_voices, key=score_voice, reverse=True)[:50]  # type: ignore[misc]
 
     print()
     print("  ============================================================")
@@ -111,10 +109,13 @@ def main():
         if raw.isdigit():
             idx = int(raw)
             if 1 <= idx <= len(scored):
-                chosen = scored[idx - 1]["name"]
+                full_name  = scored[idx - 1]["name"]
+                # ElevenLabs API names are the part before any ' - ' suffix
+                api_name   = full_name.split(" - ")[0].strip()
                 print()
-                print(f"  >> Selected: {chosen}")
+                print(f"  >> Selected: {full_name}")
                 print()
+                chosen = api_name
                 break
         print(f"  [!] Please enter a number between 1 and {len(scored)}.")
 
