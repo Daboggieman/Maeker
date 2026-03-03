@@ -47,7 +47,7 @@ class VideoCreator:
                     headers["Authorization"] = f"Bearer {api_key}"
                 
                 url = (
-                    f"https://image.pollinations.ai/prompt/{encoded_prompt}"
+                    f"https://gen.pollinations.ai/image/{encoded_prompt}"
                     f"?model={model}&seed={seed}&width=1280&height=720&nologo=true"
                 )
                 
