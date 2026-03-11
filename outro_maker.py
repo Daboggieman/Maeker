@@ -11,10 +11,10 @@ from dotenv import load_dotenv  # type: ignore
 
 load_dotenv()
 
-OUTRO_DURATION = 4.0   # seconds
+OUTRO_DURATION = 8.0   # seconds
 FPS = 24
 WIDTH, HEIGHT = 1920, 1080
-OUTRO_PATH = os.path.join(os.getenv("ASSETS_DIR", "assets"), "outro", "maeker_outro.mp4")
+OUTRO_PATH = os.path.join(os.getenv("ASSETS_DIR", "assets"), "outro", "maeker_outro_v2.mp4")
 
 # Brand colours
 BLACK  = (0, 0, 0)
@@ -58,34 +58,49 @@ def _make_frame(t: float) -> np.ndarray:
 
     Timeline
     --------
-    0.0 – 1.5s  Logo fades in 
-    1.0 – 2.3s  "STUDIOS" fades in  (gold, lighter)
+    0.0 – 1.5s  Logo & 'MAEKER' fade in 
+    1.0 – 2.3s  'STUDIOS' fades in  (gold, lighter)
     2.0 – 3.2s  Gold rule draws left → right
-    3.0 – 4.0s  Hold on final frame
+    3.0 – 4.5s  CTA (Like/Share) fades in & bounces up
+    Hold on final frame until 8.0s
     """
     img = Image.new("RGBA", (WIDTH, HEIGHT), (*BLACK, 255))
     draw = ImageDraw.Draw(img)
 
-    # ── LOGO ──────────────────────────────────────────────────────────
+    # ── LOGO & "MAEKER" ───────────────────────────────────────────────────
     fade_maeker = _ease_in_out(min(1.0, t / 1.5))
-    if fade_maeker > 0 and _logo_img:
-        # Create a copy to adjust transparency
-        logo_frame = _logo_img.copy()
+    if fade_maeker > 0:
         alpha = int(255 * fade_maeker)
+        logo_y_bottom = HEIGHT // 2 - 10  # Track where logo ends
         
-        # Apply the fade to the alpha channel of the logo
-        if logo_frame.mode == "RGBA":
-            r, g, b, a = logo_frame.split()
-            a = a.point(lambda p: int(p * fade_maeker))
-            logo_frame.putalpha(a)
+        # 1. Image Logo
+        if _logo_img:
+            logo_frame = _logo_img.copy()
+            if logo_frame.mode == "RGBA":
+                r, g, b, a = logo_frame.split()
+                a = a.point(lambda p: int(p * fade_maeker))
+                logo_frame.putalpha(a)
+            
+            lw, lh = logo_frame.size
+            logo_x = (WIDTH - lw) // 2
+            # Offset logo much higher to make room for both lines of text
+            logo_y = HEIGHT // 2 - lh - 90
+            logo_y_bottom = logo_y + lh
+            
+            img.paste(logo_frame, (logo_x, logo_y), logo_frame)
+            
+        # 2. "MAEKER" Text (Right below the logo, above STUDIOS)
+        font_m = _load_font(120, bold=True)
+        text_m = "MAEKER"
+        bbox_m = draw.textbbox((0, 0), text_m, font=font_m)
+        tw_m, th_m = bbox_m[2] - bbox_m[0], bbox_m[3] - bbox_m[1]
         
-        # Calculate center position above where "STUDIOS" will be
-        lw, lh = logo_frame.size
-        logo_x = (WIDTH - lw) // 2
-        logo_y = HEIGHT // 2 - lh - 10
-        
-        # Paste logo using itself as a mask for transparency
-        img.paste(logo_frame, (logo_x, logo_y), logo_frame)
+        draw.text(
+            ((WIDTH - tw_m) // 2, logo_y_bottom + 10),
+            text_m,
+            font=font_m,
+            fill=(*WHITE, alpha)
+        )
 
     # ── "STUDIOS" ─────────────────────────────────────────────────────────
     fade_studios = _ease_in_out(max(0.0, min(1.0, (t - 1.0) / 1.3)))
@@ -100,7 +115,7 @@ def _make_frame(t: float) -> np.ndarray:
         g = int(GOLD[1] * fade_studios)
         b = int(GOLD[2] * fade_studios)
         draw.text(
-            ((WIDTH - tw) // 2, HEIGHT // 2 + 20),
+            ((WIDTH - tw) // 2, HEIGHT // 2 + 50),
             text,
             font=font_s,
             fill=(r, g, b, 255),
@@ -109,10 +124,34 @@ def _make_frame(t: float) -> np.ndarray:
     # ── Gold rule ─────────────────────────────────────────────────────────
     rule_progress = _ease_in_out(max(0.0, min(1.0, (t - 2.0) / 1.2)))
     if rule_progress > 0:
-        rule_y = HEIGHT // 2 + 130
+        rule_y = HEIGHT // 2 + 160
         rule_left = WIDTH // 2 - 400
         rule_right = rule_left + int(800 * rule_progress)
         draw.rectangle([rule_left, rule_y, rule_right, rule_y + 3], fill=(*GOLD, 255))
+
+    # ── Animated CTA (Like, Subscribe, Share) ─────────────────────────────
+    # Fades in and slides up between 3.0s and 4.5s
+    cta_progress = _ease_in_out(max(0.0, min(1.0, (t - 3.0) / 1.5)))
+    if cta_progress > 0:
+        font_cta = _load_font(50, bold=True)
+        # Using simple unicode symbols that PIL can render easily
+        text_cta = "LIKE     SUBSCRIBE     SHARE"
+        bbox_cta = draw.textbbox((0, 0), text_cta, font=font_cta)
+        tw_cta, th_cta = bbox_cta[2] - bbox_cta[0], bbox_cta[3] - bbox_cta[1]
+        
+        # Alpha fade
+        cta_alpha = int(255 * cta_progress)
+        
+        # Slide up animation (Y moves from +50 drop to 0)
+        y_offset = int(50 * (1.0 - cta_progress))
+        cta_y = HEIGHT - 200 + y_offset
+        
+        draw.text(
+            ((WIDTH - tw_cta) // 2, cta_y),
+            text_cta,
+            font=font_cta,
+            fill=(255, 255, 255, cta_alpha),
+        )
 
     # Convert back to RGB array for MoviePy (which expects 3 channels usually)
     return np.array(img.convert("RGB"))

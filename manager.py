@@ -39,6 +39,7 @@ class JobManager:
         self.checker = FactChecker()
         self.v_engine = VoiceEngine()
         self.v_creator = VideoCreator()
+        self.base_dir = self.v_creator.base_dir
         self.compliance = ComplianceEngine()
         self.outro = OutroMaker()
         self.webhook_url = webhook_url
@@ -137,14 +138,22 @@ class JobManager:
         """
         # --- Resume: skip if already completed ---
         completed = self.state.get("completed_scenes", [])
+        cache_dir = os.path.join(self.base_dir, "assets", "cache", job_id)
+        
         if index in completed:
-            logger.info(f"[resume] Skipping already-completed scene {index + 1}.")
             # Re-load asset paths from saved state
             saved_assets = self.state.get("scene_assets", [])
             for a in saved_assets:
                 if a.get("scene_index") == index:
-                    return a
-            return None
+                    # Double check if the video cache actually exists
+                    video_cache = a.get("video_cache")
+                    if video_cache and os.path.exists(video_cache):
+                        logger.info(f"[resume] skipping scene {index + 1} (assets & cache exist).")
+                        return a
+                    else:
+                        logger.warning(f"[resume] scene {index + 1} missing cache — re-rendering clip.")
+                        # Fall through to re-render but skip image/audio gen if they exist
+                        break
 
         narration = scene.get("narration", "").strip()
         image_prompt = scene.get("image_prompt", "").strip()
@@ -176,6 +185,27 @@ class JobManager:
             "image": image_path_out,
             "narration": narration,
         }
+
+        # --- Incremental Rendering (Plan 1) ---
+        os.makedirs(cache_dir, exist_ok=True)
+        video_cache_path = os.path.join(cache_dir, f"scene_{index}.mp4")
+        
+        # Determine video format from state or default
+        video_format = self.state.get("platform", "youtube_short")
+        if video_format in ["youtube_short", "tiktok"]:
+            v_fmt = "9:16"
+        else:
+            v_fmt = "16:9"
+
+        logger.info(f"[scene {index + 1}] Rendering scene segment...")
+        success = await asyncio.to_thread(
+            self.v_creator.create_scene_clip, asset, video_cache_path, format=v_fmt
+        )
+        
+        if success:
+            asset["video_cache"] = video_cache_path
+        else:
+            logger.error(f"Scene {index + 1}: Failed to render cached segment.")
 
         # Thread-safe state update
         async with self._state_lock:

@@ -206,6 +206,138 @@ class VideoCreator:
 
         return subtitle_clips
 
+    def _get_scene_watermark(self, width, duration):
+        """Generates a semi-transparent keyboard-key sized watermark clip."""
+        from PIL import Image, ImageDraw, ImageFont # type: ignore
+        import numpy as np # type: ignore
+        from moviepy import ImageClip # type: ignore
+        
+        try:
+            logo_path = os.path.join("media", "maeker logo.png")
+            if not os.path.exists(logo_path):
+                return None
+                
+            wm_logo = Image.open(logo_path).convert("RGBA")
+            
+            # Make keyboard-key sized (~45px height)
+            target_h = 45
+            hpercent = (target_h / float(wm_logo.size[1]))
+            wsize = int((float(wm_logo.size[0]) * float(hpercent)))
+            wm_logo = wm_logo.resize((wsize, target_h), Image.Resampling.LANCZOS)
+            
+            # Create font
+            try:
+                font = ImageFont.truetype("arialbd.ttf", 40)
+            except:
+                font = ImageFont.load_default()
+            
+            # Measure text
+            text = "MAEKER"
+            dummy_img = Image.new('RGBA', (1, 1))
+            dummy_draw = ImageDraw.Draw(dummy_img)
+            bbox = dummy_draw.textbbox((0, 0), text, font=font)
+            tw = bbox[2] - bbox[0]
+            th = bbox[3] - bbox[1]
+            
+            spacing = 12
+            wm_width = wsize + spacing + tw
+            wm_height = max(target_h, th)
+            
+            wm_img = Image.new("RGBA", (wm_width, wm_height), (0, 0, 0, 0))
+            wm_img.paste(wm_logo, (0, (wm_height - target_h) // 2), wm_logo)
+            
+            wm_draw = ImageDraw.Draw(wm_img)
+            wm_draw.text((wsize + spacing, (wm_height - th) // 2 - 5), text, font=font, fill=(255, 255, 255, 255))
+            
+            # 80% opacity as requested
+            r, g, b, a = wm_img.split()
+            a = a.point(lambda p: int(p * 0.8))
+            wm_img.putalpha(a)
+            
+            wm_array = np.array(wm_img)
+            wm_clip = ImageClip(wm_array).with_duration(duration)
+            
+            # Position top right with 40px padding
+            return wm_clip.with_position((width - wm_width - 40, 40)) # type: ignore
+        except Exception as e:
+            print(f"WARN: Watermark generation failed: {e}")
+            return None
+
+    def create_scene_clip(self, asset, output_path, format="16:9"):
+        """
+        Renders a single scene asset to a standalone MP4 file for caching.
+        """
+        from moviepy import ImageClip, AudioFileClip, CompositeVideoClip, ColorClip # type: ignore
+        import numpy as np # type: ignore
+        
+        audio_path = asset.get("audio")
+        image_path = asset.get("image")
+        narration = asset.get("narration", "")
+        
+        if not audio_path or not os.path.exists(audio_path):
+            return False
+            
+        # Set resolution
+        if format == "9:16":
+            width, height = 720, 1280
+        else: # 16:9
+            width, height = 1280, 720
+            
+        try:
+            # Load Audio
+            audio_clip = AudioFileClip(audio_path)
+            duration = audio_clip.duration
+            
+            # Load Image
+            if image_path and os.path.exists(image_path):
+                image_clip = ImageClip(image_path).with_duration(duration)
+                if image_clip.size != (width, height):
+                    # Resize to fill, then crop to target bounds
+                    img_ratio = image_clip.w / image_clip.h  # type: ignore
+                    target_ratio = width / height
+                    if img_ratio > target_ratio:
+                        image_clip = image_clip.resized(height=height)
+                        image_clip = image_clip.cropped(x_center=image_clip.w/2, width=width, y_center=image_clip.h/2, height=height)
+                    else:
+                        image_clip = image_clip.resized(width=width)
+                        image_clip = image_clip.cropped(x_center=image_clip.w/2, width=width, y_center=image_clip.h/2, height=height)
+            else:
+                image_clip = ColorClip(size=(width, height), color=(0,0,0), duration=duration)
+                
+            image_clip = image_clip.with_audio(audio_clip)
+            
+            # Subtitles
+            sub_clips = self._create_subtitle_clips(narration, width, duration, height)
+            
+            # Watermark
+            wm_clip = self._get_scene_watermark(width, duration)
+            
+            layers = [image_clip]
+            if sub_clips:
+                layers.extend(sub_clips)
+            if wm_clip:
+                layers.append(wm_clip)
+                
+            final_scene = CompositeVideoClip(layers)
+            
+            # Write to disk
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+            final_scene.write_videofile(
+                output_path,
+                fps=24,
+                codec='libx264',
+                audio_codec='aac',
+                logger=None
+            )
+            
+            final_scene.close()
+            audio_clip.close()
+            return True
+            
+        except Exception as e:
+            print(f"ERROR rendering scene clip: {e}")
+            return False
+
     def assemble_multi_scene_video(self, scene_assets, output_name, format="16:9", music_path=None):
         """
         Assembles a multi-scene video using MoviePy v2.
@@ -228,6 +360,13 @@ class VideoCreator:
             clips = []
             
             for index, asset in enumerate(scene_assets):
+                # Prefer pre-rendered cache (Plan 1)
+                cache_path = asset.get("video_cache")
+                if cache_path and os.path.exists(cache_path):
+                    from moviepy import VideoFileClip # type: ignore
+                    clips.append(VideoFileClip(cache_path))
+                    continue
+
                 audio_path = asset.get("audio")
                 image_path = asset.get("image")
                 narration = asset.get("narration", "")
@@ -260,19 +399,17 @@ class VideoCreator:
 
                 image_clip = image_clip.with_audio(audio_clip)
 
-                # Attempt Subtitles (Custom PIL Implementation - Line by Line)
-                try:
-                    sub_clips = self._create_subtitle_clips(narration, width, duration, height)
-                    if sub_clips:
-                         scene_clip = CompositeVideoClip([image_clip] + sub_clips)
-                    else:
-                         scene_clip = image_clip
-                except Exception as text_e:
-                    if index == 0:
-                        print(f"WARN: Subtitles skipped due to error: {text_e}")
-                    scene_clip = image_clip
+                # Subtitles & Watermark
+                sub_clips = self._create_subtitle_clips(narration, width, duration, height)
+                wm_clip = self._get_scene_watermark(width, duration)
                 
-                clips.append(scene_clip)
+                layers = [image_clip]
+                if sub_clips:
+                    layers.extend(sub_clips)
+                if wm_clip:
+                    layers.append(wm_clip)
+                
+                clips.append(CompositeVideoClip(layers))
             
             if not clips:
                 print("ERROR: No valid scenes generated.")
@@ -299,7 +436,7 @@ class VideoCreator:
                     fps=24,
                     codec='libx264',
                     audio_codec='aac',
-                    logger=None  # Suppress progress bars to prevent maxBuffer error
+                    logger=None
                 )
                 
                 # Close memory
@@ -312,9 +449,65 @@ class VideoCreator:
             print(f"INFO: Combining {len(chunk_files)} rendered chunks together...")
             
             # Combine the physical chunk files together (No compose padding across chunks to save RAM)
-            from moviepy import VideoFileClip  # type: ignore
+            from moviepy import VideoFileClip, CompositeVideoClip  # type: ignore
             loaded_chunks = [VideoFileClip(cf) for cf in chunk_files]
             final_video = concatenate_videoclips(loaded_chunks, method="compose")
+
+            # --- Persistent Watermark ---
+            try:
+                from PIL import Image, ImageDraw, ImageFont # type: ignore
+                import numpy as np # type: ignore
+                from moviepy import ImageClip # type: ignore
+                
+                logo_path = os.path.join("media", "maeker logo.png")
+                wm_logo = Image.open(logo_path).convert("RGBA")
+                
+                # Make keyboard-key sized (~45px height)
+                target_h = 45
+                hpercent = (target_h / float(wm_logo.size[1]))
+                wsize = int((float(wm_logo.size[0]) * float(hpercent)))
+                wm_logo = wm_logo.resize((wsize, target_h), Image.Resampling.LANCZOS)
+                
+                # Create font
+                try:
+                    font = ImageFont.truetype("arialbd.ttf", 40)
+                except:
+                    font = ImageFont.load_default()
+                
+                # Measure text
+                text = "MAEKER"
+                dummy_img = Image.new('RGBA', (1, 1))
+                dummy_draw = ImageDraw.Draw(dummy_img)
+                bbox = dummy_draw.textbbox((0, 0), text, font=font)
+                tw = bbox[2] - bbox[0]
+                th = bbox[3] - bbox[1]
+                
+                # Create combined watermark image
+                spacing = 12
+                wm_width = wsize + spacing + tw
+                wm_height = max(target_h, th)
+                
+                wm_img = Image.new("RGBA", (wm_width, wm_height), (0, 0, 0, 0))
+                wm_img.paste(wm_logo, (0, (wm_height - target_h) // 2), wm_logo)
+                
+                wm_draw = ImageDraw.Draw(wm_img)
+                wm_draw.text((wsize + spacing, (wm_height - th) // 2 - 5), text, font=font, fill=(255, 255, 255, 255))
+                
+                # Make slightly transparent (60% opacity)
+                r, g, b, a = wm_img.split()
+                a = a.point(lambda p: int(p * 0.8))
+                wm_img.putalpha(a)
+                
+                wm_array = np.array(wm_img)
+                wm_clip = ImageClip(wm_array).with_duration(final_video.duration)
+                
+                # Position top right with 40px padding
+                wm_clip = wm_clip.with_position((width - wm_width - 40, 40)) # type: ignore
+                
+                final_video = CompositeVideoClip([final_video, wm_clip])
+                print("[watermark] Keyboard-key sized transparent watermark applied to top right.")
+            except Exception as wm_err:
+                print(f"WARN: Could not apply watermark: {wm_err}")
 
             # --- Optional background music mix ---
             if music_path and os.path.exists(music_path):
