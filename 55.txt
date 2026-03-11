@@ -35,8 +35,10 @@ This roadmap outlines the dual-track implementation using **n8n** for orchestrat
     - [ ] n8n dashboard for Approval/Rejection: View/Select best Hook and Approve Fact-Check status.
 
 ## PHASE 4: SCALABILITY & POLISH
-- [ ] **4.1 Audit & Policy Sync**
-    - [ ] Sync job status between n8n and Python via MongoDB.
+- [x] **4.1 Audit & Policy Sync**
+    - [x] Sync job status between n8n and Python via MongoDB.
+    - [x] **Parallel Job Support**: Unique log files per topic to prevent file locking.
+    - [x] **LLM Content Safety**: AI-driven YouTube/TikTok compliance screening.
     - [ ] Final compliance check for YouTube policies.
 
 ## PHASE 5: HYPER-REALISM & EXPANSION
@@ -45,6 +47,9 @@ This roadmap outlines the dual-track implementation using **n8n** for orchestrat
     - [ ] Implement Voice Cloning for a unique "Studio Identity".
 - [ ] **5.2 Cinematic Video Generation**
     - [ ] Build logic to replace static images with AI-generated cinematic clips.
+- [ ] **5.3 Automatic Social Media Upload**
+    - [ ] Implement YouTube Data API v3 integration for automated publishing.
+    - [ ] Implement TikTok Content Posting API integration for automated publishing.
 
 ---
 
@@ -55,4 +60,5 @@ This roadmap outlines the dual-track implementation using **n8n** for orchestrat
 - **Voice (Fallback)**: Edge TTS (`en-US-ChristopherNeural`)
 - **Image Gen**: Pollinations — `flux` → `zimage` → `imagen-4` (failover chain)
 - **Video Assembly**: MoviePy (multi-scene, 16:9 / 9:16)
-- **Launcher**: `run_job.bat` — fully interactive CLI (topic, category, voice)
+- **Launcher**: `run_job.bat` — fully interactive CLI (topic, category, voice). **Parallel Support Enabled.**
+- **Sync & Audit**: Real-time status syncing to MongoDB with LLM-based policy checks.

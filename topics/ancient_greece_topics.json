@@ -1,0 +1,36 @@
+{
+    "ancient_greece_topics_topics": [
+        {
+            "title": "Origins of Ancient Greece",
+            "description": "Minoan and Mycenaean civilizations."
+        },
+        {
+            "title": "Greek City-States",
+            "description": "Athens, Sparta, and political systems."
+        },
+        {
+            "title": "Greek Mythology",
+            "description": "Gods, heroes, and religious beliefs."
+        },
+        {
+            "title": "The Persian Wars",
+            "description": "Greek resistance against Persia."
+        },
+        {
+            "title": "Golden Age of Athens",
+            "description": "Democracy, arts, and philosophy."
+        },
+        {
+            "title": "Alexander the Great",
+            "description": "Conquests and Hellenistic world."
+        },
+        {
+            "title": "Greek Warfare",
+            "description": "Hoplites and military tactics."
+        },
+        {
+            "title": "Greek Legacy",
+            "description": "Philosophy, science, and democracy."
+        }
+    ]
+}

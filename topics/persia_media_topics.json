@@ -1,0 +1,36 @@
+{
+    "persia_media_topics_topics": [
+        {
+            "title": "The Median Empire",
+            "description": "Origins and rise of the Medes."
+        },
+        {
+            "title": "Cyrus the Great and the Achaemenid Empire",
+            "description": "Creation of Persian superpower."
+        },
+        {
+            "title": "Persian Administration",
+            "description": "Satrapies and governance."
+        },
+        {
+            "title": "Persian Religion",
+            "description": "Zoroastrianism beliefs."
+        },
+        {
+            "title": "Persian Wars with Greece",
+            "description": "Major conflicts and outcomes."
+        },
+        {
+            "title": "Persian Culture",
+            "description": "Art, architecture, and society."
+        },
+        {
+            "title": "Fall of the Persian Empire",
+            "description": "Alexander\u2019s conquest."
+        },
+        {
+            "title": "Persian Legacy",
+            "description": "Influence on later empires."
+        }
+    ]
+}

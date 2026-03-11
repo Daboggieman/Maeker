@@ -2,15 +2,21 @@ import os
 import sys
 import argparse
 import asyncio
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # type: ignore
 from manager import JobManager
 
 def main():
     parser = argparse.ArgumentParser(description="Maker Studio Orchestrator")
-    parser.add_argument("--topic", help="Topic for the content")
+    parser.add_argument("--topic", help="Topic for the content (not required when using --resume)")
     parser.add_argument("--category", default="General", help="Category of the content")
     parser.add_argument("--voice", default=None, help="ElevenLabs voice name to use for narration")
     parser.add_argument("--produce", action="store_true", help="Enable voice and video production")
+    parser.add_argument("--music", action="store_true", help="Fetch and mix royalty-free background music into the video")
+    parser.add_argument("--platform", choices=["youtube", "youtube_short", "tiktok"], default="youtube_short", help="Target platform format for aspect ratio cropping")
+    parser.add_argument("--upload", action="store_true", help="Auto-upload finished video to YouTube and TikTok")
+    parser.add_argument("--no-outro", dest="no_outro", action="store_true", help="Skip the Maeker Studios branded outro clip")
+    parser.add_argument("--resume", metavar="JOB_ID", default=None,
+                        help="Resume an interrupted job by its Job ID (e.g. 3f9a1b2c_ancient_china)")
     parser.add_argument("--webhook", help="URL for progress notifications")
     parser.add_argument("--json", action="store_true", help="Output results as JSON")
     args = parser.parse_args()
@@ -18,15 +24,31 @@ def main():
     # Load environment variables
     load_dotenv()
 
-    if not args.topic:
-        print("Error: --topic is required.")
-        sys.exit(1)
-
     # Initialize JobManager
     manager = JobManager(webhook_url=args.webhook)
 
-    # Run the Job
-    result = asyncio.run(manager.run_job(args.topic, args.category, produce=args.produce, voice=args.voice))
+    # Pass no_outro flag through to manager
+    if args.no_outro:
+        manager.outro = None  # disable outro rendering
+
+    # --- Resume mode ---
+    if args.resume:
+        print(f"\n[MAKER STUDIO] Resuming job: {args.resume}")
+        result = asyncio.run(manager.resume_job(
+            args.resume, voice=args.voice, music=args.music, upload=args.upload, platform=args.platform
+        ))
+    else:
+        if not args.topic:
+            print("Error: --topic is required when not using --resume.")
+            sys.exit(1)
+        result = asyncio.run(manager.run_job(
+            args.topic, args.category,
+            produce=args.produce,
+            voice=args.voice,
+            music=args.music,
+            upload=args.upload,
+            platform=args.platform
+        ))
 
     # Output results
     if args.json:
@@ -37,8 +59,22 @@ def main():
             print(f"\nCRITICAL ERROR: {result.get('message')}")
             sys.exit(1)
         else:
-            print(f"\n--- JOB COMPLETE: {args.topic} ---")
-            print(f"Status: {result.get('status')}")
+            job_id = result.get("job_id", "N/A")
+            topic  = result.get("topic", args.topic or args.resume)
+            meta   = result.get("upload_metadata", {})
+            print(f"\n--- JOB COMPLETE: {topic} ---")
+            print(f"Status  : {result.get('status')}")
+            print(f"Job ID  : {job_id}")
+            if meta:
+                print(f"\nYouTube Title : {meta.get('youtube_title', 'N/A')}")
+                print(f"TikTok Caption: {meta.get('tiktok_title', 'N/A')}")
+            if result.get("youtube_upload"):
+                yt = result["youtube_upload"]
+                print(f"YouTube Upload: {yt.get('status')} — {yt.get('url', '')}")
+            if result.get("tiktok_upload"):
+                tt = result["tiktok_upload"]
+                print(f"TikTok Upload : {tt.get('status')}")
+            print(f"\n(To resume this job later: --resume {job_id})")
 
 if __name__ == "__main__":
     main()

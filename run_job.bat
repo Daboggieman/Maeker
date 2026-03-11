@@ -1,4 +1,5 @@
 @echo off
+setlocal enabledelayedexpansion
 :: ============================================================
 ::  MAKER STUDIO — AI video generator
 :: ============================================================
@@ -25,6 +26,30 @@ echo  ============================================================
 echo   MAEKER STUDIO  ^| COR
 echo  ============================================================
 echo.
+
+:: ── Step 0 : Resume? ────────────────────────────────────────
+echo  Tip: To resume an interrupted job, paste its Job ID below.
+echo  Press ENTER to start a brand-new job.
+echo.
+set /p "RESUME_ID=  >> Resume Job ID (or ENTER to skip): "
+
+if not "%RESUME_ID%"=="" (
+    echo.
+    echo  [RESUME] Resuming job: %RESUME_ID%
+    echo  ============================================================
+    echo.
+    "%PYTHON_EXE%" "%SCRIPT_PATH%" --resume "%RESUME_ID%" --produce
+    if errorlevel 1 (
+        echo.
+        echo  [CRITICAL ERROR] Resume failed. Check logs\ for details.
+    ) else (
+        echo.
+        echo  [SUCCESS] Resumed job completed!
+    )
+    echo  ============================================================
+    pause
+    exit /b
+)
 
 :: ── Step 1 : Topic ──────────────────────────────────────────
 :ASK_TOPIC
@@ -88,7 +113,29 @@ if exist "%VOICE_TMP%" (
 )
 if "%CHOSEN_VOICE%"=="" SET "CHOSEN_VOICE=George"
 
-:: ── Step 4 : Confirm & start ────────────────────────────────
+:: ── Step 4 : Background Music ────────────────────────────────
+echo.
+echo  ------------------------------------------------------------
+echo  Background Music (optional)
+echo  A royalty-free ambient track will be fetched and mixed into
+echo  the final video at low volume (~12%%).
+echo.
+set /p "MUSIC_INPUT=  >> Add background music? [Y/N]: "
+SET "MUSIC_FLAG="
+if /i "%MUSIC_INPUT%"=="Y" SET "MUSIC_FLAG=--music"
+
+:: ── Step 5 : Auto-upload ─────────────────────────────────────
+echo.
+echo  ------------------------------------------------------------
+echo  Auto-Upload (YouTube ^& TikTok)
+echo  NOTE: YouTube requires client_secrets.json in the maker\ folder.
+echo  NOTE: TikTok requires a saved session (run: python tiktok_uploader.py --setup).
+echo.
+set /p "UPLOAD_INPUT=  >> Upload to YouTube ^& TikTok when done? [Y/N]: "
+SET "UPLOAD_FLAG="
+if /i "%UPLOAD_INPUT%"=="Y" SET "UPLOAD_FLAG=--upload"
+
+:: ── Step 6 : Confirm  start ────────────────────────────────
 echo.
 echo  ============================================================
 echo   PRODUCTION SUMMARY
@@ -96,6 +143,17 @@ echo  ============================================================
 echo   Topic   : %TOPIC%
 echo   Category: %CATEGORY%
 echo   Voice   : %CHOSEN_VOICE%
+if "%MUSIC_FLAG%"=="--music" (
+    echo   Music   : Yes [royalty-free ambient]
+) else (
+    echo   Music   : No
+)
+if "%UPLOAD_FLAG%"=="--upload" (
+    echo   Upload  : Yes [YouTube + TikTok]
+) else (
+    echo   Upload  : No
+)
+echo   Outro   : Yes [Maeker Studios branded clip]
 echo  ============================================================
 echo.
 set /p "CONFIRM=  Start production? [Y/N]: "
@@ -111,14 +169,16 @@ echo  [MAKER STUDIO] Starting production - this may take several minutes.
 echo  ============================================================
 echo.
 
-"%PYTHON_EXE%" "%SCRIPT_PATH%" --topic "%TOPIC%" --category "%CATEGORY%" --voice "%CHOSEN_VOICE%" --produce
+"%PYTHON_EXE%" "%SCRIPT_PATH%" --topic "%TOPIC%" --category "%CATEGORY%" --voice "%CHOSEN_VOICE%" --produce %MUSIC_FLAG% %UPLOAD_FLAG%
 
 echo.
 if %ERRORLEVEL% NEQ 0 (
     echo  [CRITICAL ERROR] The job failed. Check logs\maker.log for details.
 ) else (
-    echo  [SUCCESS] Job completed! Check the jobs\ folder for your output.
+    echo  [SUCCESS] Job completed! Check the assets\renders\ folder for your video.
+    echo  Tip: the Job ID was printed above. Save it to resume this job if needed.
 )
 
 echo  ============================================================
 pause
+

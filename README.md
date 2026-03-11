@@ -13,9 +13,10 @@ Double-click **`run_job.bat`** and follow the interactive prompts:
 1. **Enter your topic** — any subject, as long or short as you like
 2. **Pick a category** — numbered menu (History, Politics, Culture, Crime, etc.)
 3. **Choose a voice** — live list of up to 50 bold male narrative voices from ElevenLabs, ranked by quality
-4. **Confirm** — review your selections and press `Y` to start production
+4. **Choose Platform** — outputs dynamically crop and sequence for either TikTok (`9:16`) or YouTube (`16:9`)
+5. **Confirm** — review your selections and press `Y` to start production
 
-Output lands in `/assets/renders/` as a ready-to-upload `.mp4`.
+Output lands in `/assets/renders/` as a ready-to-upload `.mp4` featuring perfectly blended crossfaded scenes.
 
 ---
 
@@ -81,11 +82,14 @@ maker/
 ## 🔧 Manual CLI Usage
 
 ```powershell
-# Basic production run
+# Basic production run (defaults to youtube_short 9:16)
 .\venv\Scripts\python maker_studio.py --topic "Your Topic" --category "History" --produce
 
-# With specific voice
-.\venv\Scripts\python maker_studio.py --topic "Your Topic" --category "History" --voice "George" --produce
+# With specific voice and background music
+.\venv\Scripts\python maker_studio.py --topic "Your Topic" --category "History" --voice "George" --music --produce
+
+# Target specific platform (youtube 16:9, tiktok 9:16, youtube_short 9:16)
+.\venv\Scripts\python maker_studio.py --topic "Your Topic" --platform "youtube" --produce
 
 # JSON output (for n8n integration)
 .\venv\Scripts\python maker_studio.py --topic "Your Topic" --produce --json
@@ -116,12 +120,13 @@ maker/
 2. **Fact Checking** — Secondary LLM pass verifies dates, events, and claims
 3. **Hook Generation** — Generates 3 viral hook variations for Shorts/TikTok
 4. **Compliance Check** — Screens for YouTube policy violations
-5. **Scene Breakdown** — Script is split into individual cinematic scenes (narration + image prompt per scene)
-6. **Asset Generation** (per scene, in parallel-ready loop):
+5. **Dynamic Scene Breakdown** — Script is split into ~15-second cinematic scenes to maximize viewer engagement without blowing through API limits.
+6. **Asset Generation** (per scene, in parallel-ready chunked loops):
    - 🎙️ ElevenLabs narration MP3 → Edge TTS on failure
    - 🖼️ Pollinations image (flux → zimage → imagen-4 failover)
-7. **Video Assembly** — MoviePy concatenates all scene clips into a single `.mp4` with subtitles
-8. **Save to DB** — Full job metadata and asset paths saved to MongoDB Atlas
+   - 🔤 Dynamic Subtitles — Split perfectly line-by-line, perfectly timed to the TTS audio.
+7. **Video Assembly** — MoviePy seamlessly stitches the clips with 1-second **crossfades**, rendering scenes in memory-friendly batches of 5 to prevent OOM errors, formatted precisely via `--platform`.
+8. **Save to DB** — Atomic JSON `.tmp` writes ensure Job State recovery never corrupts, and the final metadata is sent to MongoDB Atlas.
 
 ---
 

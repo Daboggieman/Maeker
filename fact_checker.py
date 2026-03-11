@@ -1,10 +1,10 @@
 import os
-import requests
+import requests  # type: ignore
 import time
 import random
-from groq import Groq
-from openai import OpenAI
-from dotenv import load_dotenv
+from groq import Groq  # type: ignore
+from openai import OpenAI  # type: ignore
+from dotenv import load_dotenv  # type: ignore
 
 load_dotenv()
 

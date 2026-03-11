@@ -1,32 +1,36 @@
 import os
+import re
+import json
+import uuid
 import logging
-import requests
 import asyncio
+import requests  # type: ignore
 from logging.handlers import RotatingFileHandler
-from database_manager import DatabaseManager
-from script_generator import ScriptGenerator
-from fact_checker import FactChecker
-from voice_engine import VoiceEngine
-from video_creator import VideoCreator
-from compliance_engine import ComplianceEngine
+from database_manager import DatabaseManager  # type: ignore
+from script_generator import ScriptGenerator  # type: ignore
+from fact_checker import FactChecker  # type: ignore
+from voice_engine import VoiceEngine  # type: ignore
+from video_creator import VideoCreator  # type: ignore
+from compliance_engine import ComplianceEngine  # type: ignore
+from outro_maker import OutroMaker  # type: ignore
+from youtube_uploader import YouTubeUploader  # type: ignore
+from tiktok_uploader import TikTokUploader  # type: ignore
 
-# Setup Centralized Rotating Logging
+# Setup Centralized Logging
 LOG_DIR = "logs"
 os.makedirs(LOG_DIR, exist_ok=True)
-log_file = os.path.join(LOG_DIR, "maker.log")
-
-# Keep 5 files of 10MB each
-handler = RotatingFileHandler(log_file, maxBytes=10*1024*1024, backupCount=5)
-handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-
-# Also print to terminal for CLI users
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter('%(message)s'))
 
 logger = logging.getLogger("MakerStudio")
 logger.setLevel(logging.INFO)
-logger.addHandler(handler)
-logger.addHandler(console_handler)
+
+# Global Console Handler (always shows in CLI)
+if not logger.handlers:
+    console_handler = logging.StreamHandler()
+    console_handler.setFormatter(logging.Formatter('%(message)s'))
+    logger.addHandler(console_handler)
+
+JOBS_DIR = "jobs"
+os.makedirs(JOBS_DIR, exist_ok=True)
 
 class JobManager:
     def __init__(self, webhook_url=None):
@@ -36,12 +40,23 @@ class JobManager:
         self.v_engine = VoiceEngine()
         self.v_creator = VideoCreator()
         self.compliance = ComplianceEngine()
+        self.outro = OutroMaker()
         self.webhook_url = webhook_url
         self.state = {}
+        self._state_lock = asyncio.Lock()
 
     def _notify(self, message, status="InProgress"):
-        """Sends a pulse to n8n and logs it."""
+        """Sends a pulse to n8n, logs it, and syncs state to MongoDB."""
         logger.info(f"JOB STATUS: {message}")
+        self.state["status"] = status
+        self.state["last_message"] = message
+
+        # Real-time Sync to MongoDB
+        try:
+            self.db.save_content_metadata(self.state)
+        except Exception as e:
+            logger.warning(f"MongoDB real-time sync failed: {e}")
+
         if self.webhook_url:
             try:
                 requests.post(self.webhook_url, json={
@@ -52,6 +67,53 @@ class JobManager:
                 }, timeout=5)
             except Exception as e:
                 logger.warning(f"Webhook notification failed: {e}")
+
+    def _save_state(self):
+        """Persists the current job state to jobs/{job_id}.json."""
+        job_id = self.state.get("job_id")
+        if not job_id:
+            return
+        state_path = os.path.join(JOBS_DIR, f"{job_id}.json")
+        temp_path = os.path.join(JOBS_DIR, f"{job_id}.json.tmp")
+        try:
+            with open(temp_path, "w", encoding="utf-8") as f:
+                json.dump(self.state, f, indent=2, default=str)
+            os.replace(temp_path, state_path)
+        except Exception as e:
+            logger.warning(f"Could not save job state: {e}")
+
+    def _load_state(self, job_id: str) -> dict:
+        """Loads a job state from disk. Supports partial/prefix matching on job IDs."""
+        state_path = os.path.join(JOBS_DIR, f"{job_id}.json")
+        if os.path.exists(state_path):
+            with open(state_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+
+        # --- Prefix / fuzzy match ---
+        try:
+            all_files = [f for f in os.listdir(JOBS_DIR) if f.endswith(".json")]
+        except OSError:
+            all_files = []
+
+        matches = [f for f in all_files if f.startswith(job_id)]
+
+        if len(matches) == 1:
+            matched_path = os.path.join(JOBS_DIR, matches[0])
+            matched_id = matches[0][:-5]  # type: ignore
+            logger.info(f"[resume] Matched '{job_id}' → full job ID: {matched_id}")
+            self.state["job_id"] = matched_id  # patch job_id to the full name
+            with open(matched_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        elif len(matches) > 1:
+            match_list = "\n  ".join(m[:-5] for m in matches)  # type: ignore
+            raise FileNotFoundError(
+                f"Multiple jobs match '{job_id}':\n  {match_list}\nPlease provide a more specific Job ID."
+            )
+        else:
+            available = "\n  ".join(f[:-5] for f in all_files) if all_files else "  (none)"  # type: ignore
+            raise FileNotFoundError(
+                f"No saved job found for ID '{job_id}'.\nAvailable jobs:\n  {available}"
+            )
 
     async def _with_retry(self, func, *args, retries=3, delay=5, **kwargs):
         """Helper for simple retry logic that handles both sync and async functions."""
@@ -67,21 +129,171 @@ class JobManager:
                 logger.warning(f"Retry {i+1}/{retries} failed: {e}. Retrying in {delay}s...")
                 await asyncio.sleep(delay)
 
-    async def run_job(self, topic, category, produce=True, voice=None):
-        self.state = {"topic": topic, "category": category, "status": "Started"}
+    async def _generate_scene_assets(self, index: int, scene: dict, job_id: str,
+                                       audio_dir: str, images_dir_name: str, topic: str) -> dict | None:
+        """
+        Generates image + audio for a single scene. Thread-safe via asyncio.Lock.
+        Returns an asset dict on success, or None if the scene should be skipped.
+        """
+        # --- Resume: skip if already completed ---
+        completed = self.state.get("completed_scenes", [])
+        if index in completed:
+            logger.info(f"[resume] Skipping already-completed scene {index + 1}.")
+            # Re-load asset paths from saved state
+            saved_assets = self.state.get("scene_assets", [])
+            for a in saved_assets:
+                if a.get("scene_index") == index:
+                    return a
+            return None
+
+        narration = scene.get("narration", "").strip()
+        image_prompt = scene.get("image_prompt", "").strip()
+
+        if not narration:
+            logger.warning(f"Scene {index + 1}: empty narration — skipping.")
+            return None
+
+        if not image_prompt:
+            image_prompt = f"A professional cinematic visual for: {topic}"
+
+        logger.info(f"[scene {index + 1}] Generating image...")
+        image_name = f"scene_{index}"
+        image_path_out = await self._with_retry(
+            self.v_creator.generate_image, image_prompt, image_name, topic_folder=images_dir_name
+        )
+
+        if not image_path_out:
+            logger.warning(f"Scene {index + 1}: image failed — skipping audio to preserve TTS quota.")
+            return None
+
+        logger.info(f"[scene {index + 1}] Generating audio...")
+        audio_path = os.path.join(audio_dir, f"scene_{index}.mp3")
+        await self._with_retry(self.v_engine.generate_voice, narration, audio_path)
+
+        asset = {
+            "scene_index": index,
+            "audio": audio_path,
+            "image": image_path_out,
+            "narration": narration,
+        }
+
+        # Thread-safe state update
+        async with self._state_lock:
+            self.state.setdefault("completed_scenes", []).append(index)
+            self.state.setdefault("scene_assets", []).append(asset)
+            self._save_state()
+
+        return asset
+
+    async def _run_production(self, topic: str, script: str, job_id: str,
+                               music: bool = False, platform: str = "youtube_short") -> str | None:
+        """Shared production pipeline (scene gen + video assembly) used by both run_job and resume_job."""
+        assets_dir = os.getenv("ASSETS_DIR", "assets")
+
+        # --- Setup job-specific asset dirs ---
+        audio_dir = os.path.join(assets_dir, "audio", job_id)
+        images_dir_name = job_id  # Passed as topic_folder to VideoCreator
+        os.makedirs(audio_dir, exist_ok=True)
+        os.makedirs(os.path.join(assets_dir, "images", job_id), exist_ok=True)
+
+        scenes = self.state.get("scenes")
+        if not scenes:
+            self._notify("Analyzing script to create cinematic scenes...")
+            scenes = await self._with_retry(self.generator.generate_scenes, script)
+            if not scenes:
+                raise Exception("Failed to break script into scenes.")
+            self.state["scenes"] = list(scenes)  # type: ignore
+            self._save_state()
+
+        scenes_list = list(scenes)  # type: ignore
+        total = len(scenes_list)
+        self._notify(f"Generating assets for {total} scenes in parallel...")
+
+        # --- Parallel asset generation ---
+        tasks = [
+            self._generate_scene_assets(i, scene, job_id, audio_dir, images_dir_name, topic)
+            for i, scene in enumerate(scenes_list)
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # Collect valid assets in scene order
+        scene_assets = []
+        for r in results:
+            if isinstance(r, Exception):
+                logger.warning(f"A scene generation task failed: {r}")
+            elif r is not None:
+                scene_assets.append(r)
+        scene_assets.sort(key=lambda a: a.get("scene_index", 0))
+
+        if not scene_assets:
+            logger.warning("No valid scenes were generated, skipping video assembly.")
+            return None
+
+        # --- Optional background music ---
+        music_path = None
+        if music:
+            self._notify("Fetching background music track...")
+            music_path = self.v_creator.fetch_background_music(topic, job_id)
+
+        # --- Video assembly ---
+        self._notify(f"Assembling multi-scene video ({len(scene_assets)} clips) for platform: {platform}...")
+        video_name = re.sub(r'[^a-zA-Z0-9]', '_', topic.lower()).strip('_')[:50]  # type: ignore
+        
+        # Determine format from platform
+        video_format = "16:9" if platform == "youtube" else "9:16"
+        
+        video_file = await asyncio.to_thread(
+            self.v_creator.assemble_multi_scene_video, scene_assets, video_name, format=video_format, music_path=music_path
+        )
+
+        if not video_file:
+            return None
+
+        # --- Outro append (always on) ---
+        self._notify("Appending Maeker Studios outro...")
+        outro_path = await asyncio.to_thread(self.outro.build_outro)
+        video_file = await asyncio.to_thread(self.v_creator.append_outro, video_file, outro_path)
+
+        return video_file
+
+    async def run_job(self, topic, category, produce=True, voice=None, music=False, upload=False, platform="youtube_short"):
+        raw_slug: str = re.sub(r'[^a-zA-Z0-9]', '_', topic.lower()).strip('_')
+        topic_slug = raw_slug[:30]  # type: ignore
+
+        # Generate a unique, human-readable job ID
+        short_uuid = str(uuid.uuid4()).replace('-', '')[:8]  # type: ignore
+        job_id = f"{short_uuid}_{topic_slug}"
+
+        # Add dynamic file handler for this specific run
+        log_file = os.path.join(LOG_DIR, f"maker_{topic_slug}.log")
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        logger.addHandler(file_handler)
+
+        self.state = {
+            "job_id": job_id,
+            "topic": topic,
+            "category": category,
+            "status": "Started",
+            "completed_scenes": [],
+            "scene_assets": [],
+        }
         if voice:
             self.v_engine.voice_name = voice
             logger.info(f"Using voice: {voice}")
+
+        logger.info(f"[JOB ID] {job_id}")
         self._notify(f"Starting job for topic: {topic}")
+        self._save_state()
 
         try:
             # 1. Script Generation
             self._notify("Generating script...")
             script = await self._with_retry(self.generator.generate_script, topic, category)
-            # Explicitly check for string type to satisfy IDE type checker
             if not isinstance(script, str) or "Error" in script:
                 raise Exception("Script generation failed after retries.")
             self.state["script"] = script
+            self._save_state()
 
             # 2. Fact Checking
             self._notify("Verifying facts...")
@@ -98,76 +310,72 @@ class JobManager:
             compliance_result = self.compliance.check_compliance(script, topic)
             self.state["compliance"] = compliance_result
 
-            if produce:
-                # 5. Scene Generation
-                self._notify("Analyzing script to create cinematic scenes...")
-                scenes = await self._with_retry(self.generator.generate_scenes, script)
-                
-                if not scenes:
-                    raise Exception("Failed to break script into scenes.")
-                    
-                self.state["scenes"] = scenes
-                scene_assets = []
-                assets_dir = os.getenv("ASSETS_DIR", "assets")
-                
-                # Sanitize topic for folder names and truncate to avoid Windows MAX_PATH limit
-                import re
-                topic_slug = re.sub(r'[^a-zA-Z0-9]', '_', topic.lower()).strip('_')[:50].rstrip('_')  # type: ignore[misc]
-                
-                # Create topic-specific subfolders
-                topic_audio_dir = os.path.join(assets_dir, "audio", topic_slug)
-                topic_images_dir = topic_slug # Passed as parameter to VideoCreator
-                os.makedirs(topic_audio_dir, exist_ok=True)
-                
-                scenes_list = list(scenes)
-                for index, scene in enumerate(scenes_list):
-                    self._notify(f"Generating assets for scene {index+1} of {len(scenes_list)}...")
-                    narration = scene.get("narration", "")
-                    image_prompt = scene.get("image_prompt", "")
-                    
-                    if not narration:
-                        continue
-                    
-                    # 1. IMAGE FIRST — skip scene entirely if this fails (saves TTS tokens)
-                    if not image_prompt:
-                        image_prompt = f"A professional cinematic visual for: {topic}"
-                    image_name = f"scene_{index}"
-                    image_path_out = await self._with_retry(self.v_creator.generate_image, image_prompt, image_name, topic_folder=topic_images_dir)
-                    
-                    if not image_path_out:
-                        logger.warning(f"Scene {index+1}: Image failed — skipping audio to preserve TTS quota.")
-                        continue
-                    
-                    # 2. AUDIO — only runs if image succeeded
-                    audio_name = f"scene_{index}.mp3"
-                    audio_path = os.path.join(topic_audio_dir, audio_name)
-                    await self._with_retry(self.v_engine.generate_voice, narration, audio_path)
-                    
-                    scene_assets.append({
-                        "audio": audio_path,
-                        "image": image_path_out,
-                        "narration": narration
-                    })
+            if compliance_result.get("status") == "Flagged":
+                risk_level = compliance_result.get("risk_level", "Medium")
+                issues = compliance_result.get("issues", [])
+                logger.warning(f"Compliance Alert: {risk_level} risk. Issues: {issues}")
 
-                # 6. Video Assembly
-                if scene_assets:
-                    self._notify(f"Assembling multi-scene video ({len(scene_assets)} clips) (this may take a few minutes)...")
-                    video_name = topic.replace(' ', '_')[:50]
-                    video_file = await asyncio.to_thread(self.v_creator.assemble_multi_scene_video, scene_assets, video_name)
-                    
-                    if video_file:
-                        self.state["video_file"] = video_file
-                        self._notify("Video assembly complete.")
+                if risk_level in ["High", "Medium"]:
+                    self._notify("Attempting to auto-correct compliance issues...")
+                    new_script = self.compliance.rewrite_for_compliance(script, issues)
+                    if new_script:
+                        self._notify("Script rewritten for compliance. Re-verifying...")
+                        script = new_script
+                        self.state["script"] = script
+                        compliance_result = self.compliance.check_compliance(script, topic)
+                        self.state["compliance"] = compliance_result
+                        if compliance_result.get("status") == "Flagged" and compliance_result.get("risk_level") == "High":
+                            raise Exception(f"Job halted: Second compliance check still High Risk: {compliance_result.get('issues')}")
+                        self._notify("Compliance issues resolved via auto-correction.")
                     else:
-                        logger.warning("Video assembly returned no file.")
-                else:
-                    logger.warning("No valid scenes were generated, skipping video assembly.")
+                        if risk_level == "High":
+                            raise Exception("Job halted: High Risk script and auto-correction failed.")
 
-            # 7. Finalize
+            self._save_state()
+
+            if produce:
+                # 5. Scene generation + video assembly + outro
+                video_file = await self._run_production(topic, script, job_id, music=music)
+                if video_file:
+                    self.state["video_file"] = video_file
+                    self._notify("Video production complete.")
+
+                    # 6. Upload metadata
+                    self._notify("Generating upload titles and descriptions...")
+                    hooks = self.state.get("hooks", "")
+                    upload_meta = self.generator.generate_upload_metadata(script, topic, category, hooks)
+                    self.state["upload_metadata"] = upload_meta
+                    self._save_state()
+                    logger.info(f"[YouTube Title] {upload_meta.get('youtube_title')}")
+
+                    # 7. Auto-upload
+                    if upload:
+                        self._notify("Uploading to YouTube...")
+                        yt_result = YouTubeUploader().upload_video(
+                            video_file,
+                            title=upload_meta.get("youtube_title", topic),
+                            description=upload_meta.get("youtube_description", ""),
+                            tags=upload_meta.get("tiktok_tags", []),
+                            category=category,
+                        )
+                        self.state["youtube_upload"] = yt_result
+                        logger.info(f"[YouTube Upload] {yt_result}")
+
+                        self._notify("Uploading to TikTok...")
+                        tt_result = TikTokUploader().upload_video(
+                            video_file,
+                            title=upload_meta.get("tiktok_title", topic),
+                            tags=upload_meta.get("tiktok_tags", []),
+                        )
+                        self.state["tiktok_upload"] = tt_result
+                        logger.info(f"[TikTok Upload] {tt_result}")
+                else:
+                    logger.warning("Video production returned no file.")
+
+            # 6. Finalize
             self.state["status"] = "Complete"
             self._notify("Job finished successfully!", status="Complete")
-            
-            # Save to metadata
+            self._save_state()
             self.db.save_content_metadata(self.state)
             return self.state
 
@@ -175,4 +383,101 @@ class JobManager:
             error_msg = f"Fatal error in job: {str(e)}"
             logger.error(error_msg, exc_info=True)
             self._notify(error_msg, status="Error")
+            self.state["status"] = "Error"
+            self._save_state()
+            return {"status": "Error", "message": error_msg}
+
+    async def resume_job(self, job_id: str, voice=None, music=False, upload=False, platform="youtube_short"):
+        """Loads a saved job state and resumes from the first incomplete scene."""
+        logger.info(f"[RESUME] Loading job state for ID: {job_id}")
+        self.state = self._load_state(job_id)
+
+        topic = self.state.get("topic", "")
+        category = self.state.get("category", "General")
+        script = self.state.get("script", "")
+
+        if not topic or not script:
+            return {"status": "Error", "message": "Saved state is missing topic or script. Cannot resume."}
+
+        if voice:
+            self.v_engine.voice_name = voice
+            logger.info(f"Using voice: {voice}")
+
+        raw_slug: str = re.sub(r'[^a-zA-Z0-9]', '_', topic.lower()).strip('_')
+        topic_slug = raw_slug[:30]  # type: ignore
+        log_file = os.path.join(LOG_DIR, f"maker_{topic_slug}.log")
+        file_handler = logging.FileHandler(log_file, encoding='utf-8')
+        file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        logger.addHandler(file_handler)
+
+        completed = self.state.get("completed_scenes", [])
+        self._notify(f"Resuming job '{job_id}' — {len(completed)} scene(s) already completed.")
+
+        try:
+            # We can assume if we're resuming, we only need to finish scenes & produce video
+            topic = self.state["topic"]
+            script = self.state["script"]
+            job_id = self.state["job_id"]
+            category = self.state.get("category", "General")
+
+            # Determine how many scenes are actually finished (have audio & image)
+            completed_count = 0
+            for s in self.state["scenes"]:
+                if "audio" in s and "image" in s:
+                    completed_count = completed_count + 1  # type: ignore
+
+            if "platform" not in self.state:
+                self.state["platform"] = platform
+            video_file = await self._run_production(topic, script, job_id, music=music, platform=self.state.get("platform", platform))
+            if video_file:
+                self.state["video_file"] = video_file
+                self._notify("Video assembly complete.")
+
+                # 6. Upload metadata (if not already there)
+                if "upload_metadata" not in self.state:
+                    self._notify("Generating upload titles and descriptions...")
+                    hooks = self.state.get("hooks", "")
+                    upload_meta = self.generator.generate_upload_metadata(script, topic, category, hooks)
+                    self.state["upload_metadata"] = upload_meta
+                    self._save_state()
+                    logger.info(f"[YouTube Title] {upload_meta.get('youtube_title')}")
+                else:
+                    upload_meta = self.state["upload_metadata"]
+
+                # 7. Auto-upload
+                if upload:
+                    self._notify("Uploading to YouTube...")
+                    yt_result = YouTubeUploader().upload_video(
+                        video_file,
+                        title=upload_meta.get("youtube_title", topic),
+                        description=upload_meta.get("youtube_description", ""),
+                        tags=upload_meta.get("tiktok_tags", []),
+                        category=category,
+                    )
+                    self.state["youtube_upload"] = yt_result
+                    logger.info(f"[YouTube Upload] {yt_result}")
+
+                    self._notify("Uploading to TikTok...")
+                    tt_result = TikTokUploader().upload_video(
+                        video_file,
+                        title=upload_meta.get("tiktok_title", topic),
+                        tags=upload_meta.get("tiktok_tags", []),
+                    )
+                    self.state["tiktok_upload"] = tt_result
+                    logger.info(f"[TikTok Upload] {tt_result}")
+            else:
+                logger.warning("Video production returned no file.")
+
+            self.state["status"] = "Complete"
+            self._notify("Resumed job finished successfully!", status="Complete")
+            self._save_state()
+            self.db.save_content_metadata(self.state)
+            return self.state
+
+        except Exception as e:
+            error_msg = f"Fatal error while resuming job: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            self._notify(error_msg, status="Error")
+            self.state["status"] = "Error"
+            self._save_state()
             return {"status": "Error", "message": error_msg}

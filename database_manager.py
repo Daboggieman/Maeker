@@ -1,6 +1,6 @@
 import os
-from pymongo import MongoClient
-from dotenv import load_dotenv
+from pymongo import MongoClient  # type: ignore
+from dotenv import load_dotenv  # type: ignore
 
 load_dotenv()
 
@@ -14,10 +14,11 @@ class DatabaseManager:
         else:
             try:
                 # Setting a shorter timeout so it doesn't hang for 20+ seconds
-                self.client = MongoClient(self.uri, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
+                client = MongoClient(self.uri, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
                 # Test connection immediately
-                self.client.admin.command('ping')
-                self.db = self.client['maker_studio']
+                client.admin.command('ping')
+                self.client = client
+                self.db = client['maker_studio']
                 print("Connected to MongoDB Atlas.")
             except Exception as e:
                 print(f"CRITICAL WARNING: MongoDB connection failed ({e}). Running in LOCAL mode.")
@@ -26,7 +27,12 @@ class DatabaseManager:
 
     def save_content_metadata(self, metadata):
         if self.db is not None:
-            return self.db.content_metadata.insert_one(metadata)
+            # Upsert the metadata based on the _id if it exists, otherwise insert new
+            obj_id = metadata.get("_id")
+            if obj_id:
+                return self.db.content_metadata.replace_one({"_id": obj_id}, metadata, upsert=True)
+            else:
+                return self.db.content_metadata.insert_one(metadata)
         return None
 
     def update_job_status(self, job_id, status):

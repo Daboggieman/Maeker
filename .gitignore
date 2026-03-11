@@ -6,3 +6,6 @@ jobs
 raw_feeds
 temp
 assets
+logs
+venv
+*.mp4

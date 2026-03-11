@@ -1,8 +1,8 @@
 import os
 import asyncio
 import re
-import edge_tts
-from dotenv import load_dotenv
+import edge_tts  # type: ignore
+from dotenv import load_dotenv  # type: ignore
 
 load_dotenv()
 
@@ -24,8 +24,8 @@ class VoiceEngine:
         """Fetches the specific Voice ID for the requested named voice."""
         if self.cached_voice_id:
             return self.cached_voice_id
-            
-        import requests
+
+        import requests  # type: ignore
         headers = {"xi-api-key": self.elevenlabs_api_key}
         try:
             response = requests.get("https://api.elevenlabs.io/v1/voices", headers=headers, timeout=10)
@@ -41,9 +41,9 @@ class VoiceEngine:
             print(f"WARN: Could not find ElevenLabs voice '{self.voice_name}'. Using default.")
         except Exception as e:
             print(f"WARN: Failed to search ElevenLabs voices: {e}")
-            
+
         # Fallback to a well-known default voice if search fails
-        self.cached_voice_id = "pNInz6obpgDQGcFmaJgB" # Adam (Default)
+        self.cached_voice_id = "pNInz6obpgDQGcFmaJgB"  # Adam (Default)
         return self.cached_voice_id
 
     async def generate_voice(self, text, output_path, provider="edge", tone=None, voice=None):
@@ -53,7 +53,7 @@ class VoiceEngine:
             clean_text = "Blank scene."
 
         if self.elevenlabs_api_key:
-            import requests
+            import requests  # type: ignore
             voice_id = self._get_elevenlabs_voice_id()
             url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
             headers = {
@@ -73,7 +73,27 @@ class VoiceEngine:
                         f.write(response.content)
                     return output_path
                 else:
-                    print(f"WARN: ElevenLabs failed with {response.status_code}. Falling back to Edge TTS.")
+                    # --- Detailed error detection ---
+                    error_detail = ""
+                    try:
+                        body = response.json()
+                        # ElevenLabs error shape: {"detail": {"status": "quota_exceeded", ...}}
+                        detail = body.get("detail", {})
+                        if isinstance(detail, dict):
+                            error_code = detail.get("status", "")
+                        else:
+                            error_code = str(detail)
+                            
+                        if error_code == "quota_exceeded":
+                            print(
+                                f"[ElevenLabs] QUOTA EXCEEDED — your plan's character limit has been reached. "
+                                f"Falling back to Edge TTS. Upgrade at https://elevenlabs.io/subscription"
+                            )
+                        else:
+                            error_detail = f" | error_code={error_code}" if error_code else f" | body={body}"
+                            print(f"WARN: ElevenLabs failed with HTTP {response.status_code}{error_detail}. Falling back to Edge TTS.")
+                    except Exception:
+                        print(f"WARN: ElevenLabs failed with HTTP {response.status_code} (non-JSON body). Falling back to Edge TTS.")
             except Exception as e:
                 print(f"WARN: ElevenLabs connection failed: {e}. Falling back to Edge TTS.")
 
