@@ -45,6 +45,18 @@ class JobManager:
         self.webhook_url = webhook_url
         self.state = {}
         self._state_lock = asyncio.Lock()
+        self.scene_semaphore = asyncio.Semaphore(2)
+
+    def _log_bat_file(self):
+        """Reads run_job.bat and records it in the current logger."""
+        try:
+            bat_path = os.path.join(self.base_dir, "run_job.bat")
+            if os.path.exists(bat_path):
+                with open(bat_path, "r", encoding="utf-8") as f:
+                    content = f.read()
+                logger.info(f"--- run_job.bat CONTENT ---\n{content}\n--- END run_job.bat ---")
+        except Exception as e:
+            logger.warning(f"Could not read/log run_job.bat: {e}")
 
     def _notify(self, message, status="InProgress"):
         """Sends a pulse to n8n, logs it, and syncs state to MongoDB."""
@@ -136,9 +148,10 @@ class JobManager:
         Generates image + audio for a single scene. Thread-safe via asyncio.Lock.
         Returns an asset dict on success, or None if the scene should be skipped.
         """
-        # --- Resume: skip if already completed ---
-        completed = self.state.get("completed_scenes", [])
-        cache_dir = os.path.join(self.base_dir, "assets", "cache", job_id)
+        async with self.scene_semaphore:
+            # --- Resume: skip if already completed ---
+            completed = self.state.get("completed_scenes", [])
+            cache_dir = os.path.join(self.base_dir, "assets", "cache", job_id)
         
         if index in completed:
             # Re-load asset paths from saved state
@@ -167,9 +180,11 @@ class JobManager:
 
         logger.info(f"[scene {index + 1}] Generating image...")
         image_name = f"scene_{index}"
-        image_path_out = await self._with_retry(
-            self.v_creator.generate_image, image_prompt, image_name, topic_folder=images_dir_name
-        )
+        
+        async def _run_image_gen():
+            return await asyncio.to_thread(self.v_creator.generate_image, image_prompt, image_name, topic_folder=images_dir_name)
+            
+        image_path_out = await self._with_retry(_run_image_gen)
 
         if not image_path_out:
             logger.warning(f"Scene {index + 1}: image failed — skipping audio to preserve TTS quota.")
@@ -313,6 +328,7 @@ class JobManager:
             logger.info(f"Using voice: {voice}")
 
         logger.info(f"[JOB ID] {job_id}")
+        self._log_bat_file()
         self._notify(f"Starting job for topic: {topic}")
         self._save_state()
 
@@ -441,6 +457,7 @@ class JobManager:
         logger.addHandler(file_handler)
 
         completed = self.state.get("completed_scenes", [])
+        self._log_bat_file()
         self._notify(f"Resuming job '{job_id}' — {len(completed)} scene(s) already completed.")
 
         try:

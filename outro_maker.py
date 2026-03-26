@@ -14,7 +14,7 @@ load_dotenv()
 OUTRO_DURATION = 8.0   # seconds
 FPS = 24
 WIDTH, HEIGHT = 1920, 1080
-OUTRO_PATH = os.path.join(os.getenv("ASSETS_DIR", "assets"), "outro", "maeker_outro_v2.mp4")
+OUTRO_PATH = os.path.join(os.getenv("ASSETS_DIR", "assets"), "outro", "maeker_outro.mp4")
 
 # Brand colours
 BLACK  = (0, 0, 0)

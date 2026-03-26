@@ -69,7 +69,7 @@ class VideoCreator:
                     return output_path
                 elif response.status_code in [530, 429]:
                     print(f"WARN: API Rate Limit/Error {response.status_code}. Backing off... (Attempt {attempt+1}/{max_retries})")
-                    time.sleep(5 * (attempt + 1))
+                    time.sleep(10 * (attempt + 1))
                 else:
                     print(f"WARN: Image gen failed with status {response.status_code}. Retrying...")
                     time.sleep(2)

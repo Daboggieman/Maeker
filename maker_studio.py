@@ -5,6 +5,41 @@ import asyncio
 from dotenv import load_dotenv  # type: ignore
 from manager import JobManager
 
+def cleanup_old_assets(days_assets=7, days_logs=30):
+    import time
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Clean assets
+    assets_dir = os.path.join(base_dir, "assets")
+    if os.path.exists(assets_dir):
+        now = time.time()
+        for root, dirs, files in os.walk(assets_dir):
+            if "renders" in root or "outro" in root:
+                continue
+            for name in files:
+                filepath = os.path.join(root, name)
+                if os.path.isfile(filepath):
+                    if os.stat(filepath).st_mtime < now - days_assets * 86400:
+                        try:
+                            os.remove(filepath)
+                            print(f"[cleanup] Removed old asset: {filepath}")
+                        except Exception as e:
+                            print(f"[cleanup] Failed to remove {filepath}: {e}")
+                            
+    # Clean logs
+    logs_dir = os.path.join(base_dir, "logs")
+    if os.path.exists(logs_dir):
+        now = time.time()
+        for name in os.listdir(logs_dir):
+            filepath = os.path.join(logs_dir, name)
+            if os.path.isfile(filepath):
+                if os.stat(filepath).st_mtime < now - days_logs * 86400:
+                    try:
+                        os.remove(filepath)
+                        print(f"[cleanup] Removed old log: {filepath}")
+                    except Exception as e:
+                        print(f"[cleanup] Failed to remove {filepath}: {e}")
+
 def main():
     parser = argparse.ArgumentParser(description="Maker Studio Orchestrator")
     parser.add_argument("--topic", help="Topic for the content (not required when using --resume)")
@@ -23,6 +58,15 @@ def main():
 
     # Load environment variables
     load_dotenv()
+
+    # Fail-Fast Configuration Validation
+    if not os.getenv("GROQ_API_KEY"):
+        print("\n[CRITICAL ERROR] GROQ_API_KEY is missing from .env file.")
+        print("Please update your .env file with a valid GROQ_API_KEY to avoid wasting credits or failing mid-job.")
+        sys.exit(1)
+        
+    # Automated Asset Cleanup
+    cleanup_old_assets(days_assets=7, days_logs=30)
 
     # Initialize JobManager
     manager = JobManager(webhook_url=args.webhook)
