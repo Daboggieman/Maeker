@@ -99,7 +99,8 @@ class VoiceEngine:
                                 )
                                 continue # Try next key
                             elif response.status_code == 429:
-                                print(f"WARN: [ElevenLabs Key {key_num}] Rate Limit (429). Falling back to next key or Edge TTS...")
+                                print(f"WARN: [ElevenLabs Key {key_num}] Rate Limit (429). Sleeping 25s to cool down before pursuing alternatives...")
+                                await asyncio.sleep(25)
                                 continue
                             else:
                                 error_detail = f" | error_code={error_code}" if error_code else f" | body={body}"

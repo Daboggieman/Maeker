@@ -20,7 +20,7 @@ class VideoCreator:
         """Generates an image using the premium gen.pollinations.ai API with model failover."""
         import time
         api_key = os.getenv("POLLINATIONS_API_KEY")
-        max_retries = 3
+        max_retries = 5
 
         models = ["flux", "zimage", "imagen-4"]
 
@@ -60,19 +60,26 @@ class VideoCreator:
                 if response.status_code == 200:
                     content_type = response.headers.get('content-type', '').lower()
                     if 'image' not in content_type:
-                        print(f"WARN: API returned non-image content ({content_type}). Retrying with fallback model...")
+                        print(f"WARN: Image API returned non-image content ({content_type}). Retrying with alternate model...")
                         time.sleep(3)
                         continue
 
+                    # Determine output path with topic subfolder support
+                    os.makedirs(folder_path, exist_ok=True)
                     with open(output_path, 'wb') as f:
                         f.write(response.content)
                     return output_path
-                elif response.status_code in [530, 429]:
-                    print(f"WARN: API Rate Limit/Error {response.status_code}. Backing off... (Attempt {attempt+1}/{max_retries})")
-                    time.sleep(10 * (attempt + 1))
-                else:
-                    print(f"WARN: Image gen failed with status {response.status_code}. Retrying...")
+
+                elif response.status_code == 530:
+                    print(f"WARN: Model {model} potentially rejected the prompt (NSFW/530). Fast switching to next model...")
                     time.sleep(2)
+                elif response.status_code in [424, 429, 500, 502, 503]:
+                    wait_time = 12 * (attempt + 1)
+                    print(f"WARN: [IMAGE API {response.status_code}] Service unavailable or Rate Limit. Backing off {wait_time}s... (Attempt {attempt+1}/{max_retries})")
+                    time.sleep(wait_time)
+                else:
+                    print(f"WARN: Image gen failed with HTTP {response.status_code}. Retrying...")
+                    time.sleep(3)
 
             except Exception as e:
                 print(f"ERROR: Image generation request failed: {e}")
@@ -145,19 +152,22 @@ class VideoCreator:
         import numpy as np  # type: ignore
         from moviepy import ImageClip  # type: ignore
 
-        # Try to load Arial, fallback to default if not found
+        # Try to load Arial Bold, fallback to Arial, then default
         try:
-            font = ImageFont.truetype("arial.ttf", 45)
+            font = ImageFont.truetype("arialbd.ttf", 85)
         except IOError:
-            font = ImageFont.load_default()
+            try:
+                font = ImageFont.truetype("arial.ttf", 85)
+            except IOError:
+                font = ImageFont.load_default()
 
-        # Split text into bite-sized lines (roughly 5-7 words per line)
+        # Split text into bite-sized lines (roughly 1-2 words per line)
         words = text.split()
         lines = []
         current_line = []
         for word in words:
             current_line.append(word)
-            if len(" ".join(current_line)) > 35: # Approx char limit per line
+            if len(current_line) >= 2 or len(" ".join(current_line)) > 14:
                 lines.append(" ".join(current_line))
                 current_line = []
         if current_line:
@@ -181,25 +191,36 @@ class VideoCreator:
             text_height = bbox[3] - bbox[1]
 
             # Paddings for background box
-            box_width = text_width + 60
-            box_height = text_height + 40
+            box_width = text_width + 80
+            box_height = text_height + 50
 
-            # Create transparent background for this specific subtitle slice
-            img = Image.new('RGBA', (box_width, box_height), (0, 0, 0, 0))
+            # Expand image size slightly to accommodate drop shadows and rounded corners nicely
+            img_w = box_width + 20
+            img_h = box_height + 20
+            img = Image.new('RGBA', (img_w, img_h), (0, 0, 0, 0))
             draw = ImageDraw.Draw(img)
 
-            # Draw semi-transparent background box
-            draw.rectangle(((0, 0), (box_width, box_height)), fill=(0, 0, 0, 50))
+            box_x = 10
+            box_y = 10
 
-            # Draw text centered in the box
-            draw.text((box_width/2, box_height/2), line, font=font, fill=(255, 255, 255, 255), anchor="mm", align="center")
+            # Subtle drop shadow for the box itself
+            draw.rounded_rectangle(((box_x + 6, box_y + 6), (box_x + box_width + 6, box_y + box_height + 6)), radius=15, fill=(0, 0, 0, 100))
+            
+            # Draw premium smooth rounded background box
+            draw.rounded_rectangle(((box_x, box_y), (box_x + box_width, box_y + box_height)), radius=15, fill=(0, 0, 0, 200))
+
+            # Draw text text drop-shadow
+            draw.text((box_x + box_width/2 + 4, box_y + box_height/2 + 4), line, font=font, fill=(0,0,0,220), anchor="mm", align="center")
+            
+            # Draw text centered in the box (Pure Yellow + Black Stroke)
+            draw.text((box_x + box_width/2, box_y + box_height/2), line, font=font, fill="#FFD700", anchor="mm", align="center", stroke_width=3, stroke_fill="black")
 
             # Convert to MoviePy ImageClip
             img_array = np.array(img)
             clip = ImageClip(img_array).with_duration(time_per_line)
             
-            # Position the clip at the bottom of the screen
-            clip = clip.with_start(current_start_time).with_position(('center', height - box_height - 90)) # type: ignore
+            # Position the clip at the direct center of the screen
+            clip = clip.with_start(current_start_time).with_position(('center', 'center')) # type: ignore
             
             subtitle_clips.append(clip)
             current_start_time += time_per_line
@@ -327,11 +348,23 @@ class VideoCreator:
                 fps=24,
                 codec='libx264',
                 audio_codec='aac',
-                logger=None
+                logger=None,
+                threads=1,
+                preset='ultrafast'
             )
             
             final_scene.close()
             audio_clip.close()
+            if image_clip:
+                try: image_clip.close()
+                except: pass
+            if wm_clip:
+                try: wm_clip.close()
+                except: pass
+            if sub_clips:
+                for sc in sub_clips:
+                    try: sc.close()
+                    except: pass
             return True
             
         except Exception as e:
@@ -340,214 +373,76 @@ class VideoCreator:
 
     def assemble_multi_scene_video(self, scene_assets, output_name, format="16:9", music_path=None):
         """
-        Assembles a multi-scene video using MoviePy v2.
+        Assembles a multi-scene video using ffmpeg for ultra-low memory usage.
         scene_assets is a list of dicts: [{"audio": "...", "image": "...", "narration": "..."}]
-        music_path: optional path to a background music file (will be mixed at 12% volume).
         """
-        from moviepy import ImageClip, AudioFileClip, CompositeVideoClip, concatenate_videoclips, ColorClip, vfx  # type: ignore
+        import subprocess
         import traceback
-        
         output_path = os.path.join(self.renders_dir, f"{output_name}.mp4")
-        
-        # Set resolution based on format
-        if format == "9:16":
-            width, height = 720, 1280
-        else: # 16:9
-            width, height = 1280, 720
 
         try:
-            print(f"INFO: Assembling multi-scene video '{output_name}' with {len(scene_assets)} scenes...")
-            clips = []
+            print(f"INFO: Assembling multi-scene video '{output_name}' with {len(scene_assets)} scenes via ffmpeg...")
             
-            for index, asset in enumerate(scene_assets):
-                # Prefer pre-rendered cache (Plan 1)
-                cache_path = asset.get("video_cache")
-                if cache_path and os.path.exists(cache_path):
-                    from moviepy import VideoFileClip # type: ignore
-                    clips.append(VideoFileClip(cache_path))
-                    continue
-
-                audio_path = asset.get("audio")
-                image_path = asset.get("image")
-                narration = asset.get("narration", "")
-                
-                if not audio_path or not os.path.exists(audio_path):
-                    print(f"WARN: Skipping scene {index+1} due to missing audio.")
-                    continue
-                    
-                # Load Audio to get exact duration
-                audio_clip = AudioFileClip(audio_path)
-                duration = audio_clip.duration
-                
-                # Load Image
-                # Load Image and force strictly to exact (width, height)
-                if image_path and os.path.exists(image_path):
-                    image_clip = ImageClip(image_path).with_duration(duration)
-                    if image_clip.size != (width, height):
-                        # Resize to fill, then crop to target bounds
-                        img_ratio = image_clip.w / image_clip.h  # type: ignore
-                        target_ratio = width / height
-                        if img_ratio > target_ratio:
-                            image_clip = image_clip.resized(height=height)
-                            image_clip = image_clip.cropped(x_center=image_clip.w/2, width=width, y_center=image_clip.h/2, height=height)
-                        else:
-                            image_clip = image_clip.resized(width=width)
-                            image_clip = image_clip.cropped(x_center=image_clip.w/2, width=width, y_center=image_clip.h/2, height=height)
-                else:
-                    print(f"WARN: Missing image for scene {index+1}, using black screen.")
-                    image_clip = ColorClip(size=(width, height), color=(0,0,0), duration=duration)
-
-                image_clip = image_clip.with_audio(audio_clip)
-
-                # Subtitles & Watermark
-                sub_clips = self._create_subtitle_clips(narration, width, duration, height)
-                wm_clip = self._get_scene_watermark(width, duration)
-                
-                layers = [image_clip]
-                if sub_clips:
-                    layers.extend(sub_clips)
-                if wm_clip:
-                    layers.append(wm_clip)
-                
-                clips.append(CompositeVideoClip(layers))
+            # Ensure all scenes have their video_cache ready
+            for i, asset in enumerate(scene_assets):
+                if not asset.get("video_cache") or not os.path.exists(asset.get("video_cache")):
+                    print(f"WARN: Scene {i+1} is missing its video_cache. Attempting to render it...")
+                    temp_cache = os.path.join(self.renders_dir, f"temp_cache_{output_name}_{i}.mp4")
+                    if self.create_scene_clip(asset, temp_cache, format):
+                        asset["video_cache"] = temp_cache
+                    else:
+                        print(f"ERROR: Could not render missing cache for scene {i+1}.")
+                        return None
             
-            if not clips:
-                print("ERROR: No valid scenes generated.")
-                return None
+            # Create concat list file
+            concat_file_path = os.path.join(self.renders_dir, f"concat_{output_name}.txt")
+            with open(concat_file_path, "w", encoding="utf-8") as f:
+                for asset in scene_assets:
+                    # ffmpeg requires forward slashes or escaped backslashes
+                    safe_path = asset['video_cache'].replace("\\", "/")
+                    f.write(f"file '{safe_path}'\n")
 
-            # ==== BATCH CHUNKING LOGIC ====
-            chunk_size = 5
-            chunk_files = []
-            
-            for i in range(0, len(clips), chunk_size):
-                chunk_clips = clips[i:i + chunk_size]  # type: ignore
-                chunk_path = os.path.join(self.renders_dir, f"temp_{output_name}_chunk_{i//chunk_size}.mp4")
-                
-                print(f"INFO: Rendering chunk {i//chunk_size + 1}/{(len(clips) + chunk_size - 1)//chunk_size}...")
-                
-                # Apply crossfades WITHIN the chunk
-                trans_clips = [chunk_clips[0]]
-                for c in chunk_clips[1:]:  # type: ignore
-                    trans_clips.append(c.with_effects([vfx.CrossFadeIn(1.0)]))
-
-                chunk_video = concatenate_videoclips(trans_clips, method="compose", padding=-1.0)
-                chunk_video.write_videofile(
-                    chunk_path,
-                    fps=24,
-                    codec='libx264',
-                    audio_codec='aac',
-                    logger=None
-                )
-                
-                # Close memory
-                chunk_video.close()
-                for c in chunk_clips:
-                    c.close()
-
-                chunk_files.append(chunk_path)
-
-            print(f"INFO: Combining {len(chunk_files)} rendered chunks together...")
-            
-            # Combine the physical chunk files together (No compose padding across chunks to save RAM)
-            from moviepy import VideoFileClip, CompositeVideoClip  # type: ignore
-            loaded_chunks = [VideoFileClip(cf) for cf in chunk_files]
-            final_video = concatenate_videoclips(loaded_chunks, method="compose")
-
-            # --- Persistent Watermark ---
-            try:
-                from PIL import Image, ImageDraw, ImageFont # type: ignore
-                import numpy as np # type: ignore
-                from moviepy import ImageClip # type: ignore
-                
-                logo_path = os.path.join("media", "maeker logo.png")
-                wm_logo = Image.open(logo_path).convert("RGBA")
-                
-                # Make keyboard-key sized (~45px height)
-                target_h = 45
-                hpercent = (target_h / float(wm_logo.size[1]))
-                wsize = int((float(wm_logo.size[0]) * float(hpercent)))
-                wm_logo = wm_logo.resize((wsize, target_h), Image.Resampling.LANCZOS)
-                
-                # Create font
-                try:
-                    font = ImageFont.truetype("arialbd.ttf", 40)
-                except:
-                    font = ImageFont.load_default()
-                
-                # Measure text
-                text = "MAEKER"
-                dummy_img = Image.new('RGBA', (1, 1))
-                dummy_draw = ImageDraw.Draw(dummy_img)
-                bbox = dummy_draw.textbbox((0, 0), text, font=font)
-                tw = bbox[2] - bbox[0]
-                th = bbox[3] - bbox[1]
-                
-                # Create combined watermark image
-                spacing = 12
-                wm_width = wsize + spacing + tw
-                wm_height = max(target_h, th)
-                
-                wm_img = Image.new("RGBA", (wm_width, wm_height), (0, 0, 0, 0))
-                wm_img.paste(wm_logo, (0, (wm_height - target_h) // 2), wm_logo)
-                
-                wm_draw = ImageDraw.Draw(wm_img)
-                wm_draw.text((wsize + spacing, (wm_height - th) // 2 - 5), text, font=font, fill=(255, 255, 255, 255))
-                
-                # Make slightly transparent (60% opacity)
-                r, g, b, a = wm_img.split()
-                a = a.point(lambda p: int(p * 0.8))
-                wm_img.putalpha(a)
-                
-                wm_array = np.array(wm_img)
-                wm_clip = ImageClip(wm_array).with_duration(final_video.duration)
-                
-                # Position top right with 40px padding
-                wm_clip = wm_clip.with_position((width - wm_width - 40, 40)) # type: ignore
-                
-                final_video = CompositeVideoClip([final_video, wm_clip])
-                print("[watermark] Keyboard-key sized transparent watermark applied to top right.")
-            except Exception as wm_err:
-                print(f"WARN: Could not apply watermark: {wm_err}")
-
-            # --- Optional background music mix ---
             if music_path and os.path.exists(music_path):
-                try:
-                    from moviepy import AudioFileClip, CompositeAudioClip  # type: ignore
-                    bg_audio = AudioFileClip(music_path)
-                    total_duration = final_video.duration
-                    # Loop music to match video length
-                    if bg_audio.duration < total_duration:
-                        import math
-                        loops = math.ceil(total_duration / bg_audio.duration)
-                        from moviepy import concatenate_audioclips  # type: ignore
-                        bg_audio = concatenate_audioclips([bg_audio] * loops)
-                    bg_audio = bg_audio.subclipped(0, total_duration).with_volume_scaled(0.12)
-                    main_audio = final_video.audio
-                    if main_audio:
-                        mixed = CompositeAudioClip([main_audio, bg_audio])
-                        final_video = final_video.with_audio(mixed)
-                    print("[music] Background music mixed in at 12% volume.")
-                except Exception as music_err:
-                    print(f"WARN: Could not mix background music: {music_err}")
+                temp_combined = os.path.join(self.renders_dir, f"temp_{output_name}.mp4")
+                
+                # Step 1: Fast concat video streams without re-encoding
+                subprocess.run([
+                    "ffmpeg", "-y", "-f", "concat", "-safe", "0", 
+                    "-i", concat_file_path, 
+                    "-c", "copy", temp_combined
+                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                # Step 2: Mix background music (looping music stream, amix)
+                print(f"INFO: Mixing background music into '{output_path}'...")
+                music_safe = music_path.replace("\\", "/")
+                subprocess.run([
+                    "ffmpeg", "-y", "-i", temp_combined, 
+                    "-stream_loop", "-1", "-i", music_safe,
+                    "-filter_complex", "[1:a]volume=0.12[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2[outa]",
+                    "-map", "0:v", "-map", "[outa]",
+                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                    output_path
+                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
+                if os.path.exists(temp_combined):
+                    os.remove(temp_combined)
+            else:
+                # Direct concat
+                subprocess.run([
+                    "ffmpeg", "-y", "-f", "concat", "-safe", "0", 
+                    "-i", concat_file_path, 
+                    "-c", "copy", output_path
+                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-            print(f"INFO: Writing final assembled video file to {output_path}...")
-            final_video.write_videofile(
-                output_path,
-                fps=24,
-                codec='libx264',
-                audio_codec='aac',
-                logger=None 
-            )
-            
-            # Clean up
-            final_video.close()
-            for lc in loaded_chunks:
-                lc.close()
-            for cf in chunk_files:
-                if os.path.exists(cf):
-                    os.remove(cf)
-            
+            if os.path.exists(concat_file_path):
+                os.remove(concat_file_path)
+                
+            print(f"INFO: Successfully assembled final video: {output_path}")
             return output_path
+            
+        except subprocess.CalledProcessError as e:
+            print(f"ERROR assembling multi-scene video via ffmpeg: {e}")
+            return None
         except Exception as e:
             print(f"ERROR assembling multi-scene video: {e}")
             traceback.print_exc()
@@ -582,6 +477,8 @@ class VideoCreator:
                 codec="libx264",
                 audio_codec="aac",
                 logger=None,
+                threads=1,
+                preset='ultrafast'
             )
 
             main_clip.close()

@@ -1,29 +1,10 @@
 import os
-from groq import Groq  # type: ignore
-from openai import OpenAI  # type: ignore
-from dotenv import load_dotenv  # type: ignore
-
-load_dotenv()
+import json
+from llm_router import LLMRouter  # pyre-ignore
 
 class ComplianceEngine:
     def __init__(self, model="llama-3.3-70b-versatile"):
-        self.groq_key = os.getenv("GROQ_API_KEY")
-        self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
-        self.model_name = model
-        
-        # Initialize Clients
-        if self.groq_key:
-            self.groq_client = Groq(api_key=self.groq_key)
-        else:
-            self.groq_client = None
-
-        if self.openrouter_key:
-            self.openrouter_client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=self.openrouter_key
-            )
-        else:
-            self.openrouter_client = None
+        self.router = LLMRouter(primary_groq_model=model)
 
     def check_compliance(self, script, title):
         """Evaluates script/title against YouTube and TikTok guidelines using LLM."""
@@ -37,42 +18,12 @@ class ComplianceEngine:
         
         user_prompt = f"Title: {title}\nScript: {script}"
 
-        # 1. Try Groq
-        if self.groq_client:
+        response = self.router.route_request(system_prompt, user_prompt, response_format="json")
+        if response:
             try:
-                response = self.groq_client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    model=self.model_name,
-                    response_format={"type": "json_object"}
-                )
-                import json
-                return json.loads(response.choices[0].message.content)
+                return json.loads(response)
             except Exception as e:
-                print(f"WARN: Compliance LLM (Groq) failed: {e}")
-
-        # 2. Try OpenRouter Fallback
-        if self.openrouter_client:
-            try:
-                fallback_model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
-                response = self.openrouter_client.chat.completions.create(
-                    model=fallback_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ]
-                )
-                # Parse loosely if JSON mode isn't guaranteed
-                content = response.choices[0].message.content
-                import json
-                # Try to extract JSON if it's wrapped in markers
-                if "```json" in content:
-                    content = content.split("```json")[1].split("```")[0].strip()
-                return json.loads(content)
-            except Exception as e:
-                print(f"WARN: Compliance LLM (OpenRouter) failed: {e}")
+                print(f"WARN: Failed to parse Compliance JSON: {e}")
 
         # Final Fallback: Keyword matching if LLMs fail
         restricted = ["violence", "hate", "scam", "harmful"]
@@ -95,34 +46,9 @@ class ComplianceEngine:
         )
         user_prompt = f"Original Script: {script}"
 
-        # 1. Try Groq
-        if self.groq_client:
-            try:
-                response = self.groq_client.chat.completions.create(
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    model=self.model_name
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                print(f"WARN: Compliance Rewrite (Groq) failed: {e}")
-
-        # 2. Try OpenRouter Fallback
-        if self.openrouter_client:
-            try:
-                fallback_model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
-                response = self.openrouter_client.chat.completions.create(
-                    model=fallback_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ]
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                print(f"WARN: Compliance Rewrite (OpenRouter) failed: {e}")
+        response = self.router.route_request(system_prompt, user_prompt, response_format="text")
+        if response:
+            return response
 
         return None
 

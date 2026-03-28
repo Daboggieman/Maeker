@@ -1,37 +1,10 @@
 import os
-import requests  # type: ignore
-import time
-import random
-from groq import Groq  # type: ignore
-from openai import OpenAI  # type: ignore
-from dotenv import load_dotenv  # type: ignore
-
-load_dotenv()
+import re
+from llm_router import LLMRouter  # pyre-ignore
 
 class ScriptGenerator:
-    def __init__(self, model="llama-3.1-8b-instant"): # Default Groq model (Highest Daily Limit)
-        self.groq_key = os.getenv("GROQ_API_KEY")
-        self.openrouter_key = os.getenv("OPENROUTER_API_KEY")
-        self.ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-        
-        self.model_name = model
-        # Secondary Groq selection for maximum throughput/fallback
-        self.groq_model_secondary = "llama-3.3-70b-versatile"
-
-        # 1. Initialize Groq (Primary)
-        if self.groq_key:
-            self.groq_client = Groq(api_key=self.groq_key)
-        else:
-            self.groq_client = None
-
-        # 2. Initialize OpenRouter (Secondary/Tertiary)
-        if self.openrouter_key:
-            self.openrouter_client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key=self.openrouter_key
-            )
-        else:
-            self.openrouter_client = None
+    def __init__(self, model="llama-3.1-8b-instant"):
+        self.router = LLMRouter(primary_groq_model=model)
 
     def generate_script(self, topic, category="General"):
         """Generates a video script. Hierarchy: Groq (Primary) -> Groq (Secondary) -> OpenRouter -> Ollama."""
@@ -46,53 +19,10 @@ class ScriptGenerator:
         system_prompt = category_prompts.get(category, category_prompts["General"])
         user_prompt = f"Topic: {topic}\nWrite a fluid, deeply detailed, interesting, captivating, humourus and very long script. Use highly accessible 5th-grade English. Do NOT use any headings, brackets, or bullet points. It must read entirely as continuous, engaging spoken narration."
 
-        # 1. Try Groq (Primary & Secondary Failover)
-        if self.groq_client:
-            for current_model in [self.model_name, self.groq_model_secondary]:
-                try:
-                    chat_completion = self.groq_client.chat.completions.create(
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        model=current_model,
-                    )
-                    return chat_completion.choices[0].message.content
-                except Exception as e:
-                    print(f"WARN: Groq model {current_model} failed: {e}. Trying fallback...")
-
-        # 2. Try OpenRouter (Secondary Failover)
-        if self.openrouter_client:
-            try:
-                # Use a free/cheap model on OpenRouter as fallback
-                fallback_model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001") 
-                response = self.openrouter_client.chat.completions.create(
-                    model=fallback_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ],
-                    extra_headers={
-                        "HTTP-Referer": "https://maker.studio", # Optional, for including your app on openrouter.ai rankings.
-                        "X-Title": "Maker Studio", # Optional. Shows in rankings on openrouter.ai.
-                    }
-                )
-                return response.choices[0].message.content
-            except Exception as e:
-                print(f"WARN: OpenRouter fallback failed: {e}. Trying Ollama...")
-
-        # 3. Try Ollama (Ultimate Offline Fallback)
-        try:
-            ollama_response = requests.post(
-                f"{self.ollama_url}/api/generate",
-                json={"model": "llama3.2", "prompt": f"{system_prompt}\n\n{user_prompt}", "stream": False},
-                timeout=30
-            )
-            if ollama_response.status_code == 200:
-                return ollama_response.json().get("response", "")
-        except Exception as e:
-            print(f"ERROR: Ollama fallback failed: {e}")
-
+        response = self.router.route_request(system_prompt, user_prompt, response_format="text")
+        if response:
+            return response
+            
         return "Error: Could not generate script from any provider."
 
     def generate_scenes(self, script):
@@ -106,14 +36,14 @@ Return ONLY a JSON object with a single key "scenes" containing an array of scen
 Each scene object must have:
 1. "narration": The EXACT chunk of text from the script to be spoken. Do not summarize, skip, or change the text. Every single word of the script must be included across the narrations.
 CRITICAL TIMING RULE: A single scene should represent roughly 15 seconds of speaking time (maximum ~35-40 words). If a narrative block is longer than 40 words, you MUST break it entirely into multiple shorter scenes, each with its own image prompt.
-2. "image_prompt": A highly detailed visual prompt for an AI image generator describing the scene (cinematic, highly detailed, photorealistic).
+2. "image_prompt": A highly detailed visual prompt for an AI image generator describing the scene. STRICT RULE: Ensure you only generate highly descriptive, detailed prompts. You MUST explicitly specify "no text, no typography, 8k, highly detailed, cinematic" at the end of every single image prompt to prevent AI artifacts.
 
 Example format:
 {{
   "scenes": [
     {{
       "narration": "In the heart of the ancient aztec city, long before the empires of dust...",
-      "image_prompt": "Cinematic wide shot of an ancient bustling aztec city, aztec golden city, aztec theme, golden hour, highly detailed."
+      "image_prompt": "Cinematic wide shot of an ancient bustling aztec city, golden hour, 8k resolution, highly detailed, photorealistic, no text, no typography."
     }}
   ]
 }}
@@ -122,51 +52,12 @@ Script:
 {script}
 """
         
-        # 1. Try Groq (Primary & Secondary)
-        if self.groq_client:
-            for current_model in [self.model_name, self.groq_model_secondary]:
-                try:
-                    chat_completion = self.groq_client.chat.completions.create(
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        model=current_model,
-                        response_format={"type": "json_object"}
-                    )
-                    return json.loads(chat_completion.choices[0].message.content).get("scenes", [])
-                except Exception as e:
-                    print(f"ERROR: Groq model {current_model} failed for scenes: {e}.")
-
-        # 2. Try OpenRouter (Secondary)
-        if self.openrouter_client:
+        response = self.router.route_request(system_prompt, user_prompt, response_format="json")
+        if response:
             try:
-                fallback_model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
-                response = self.openrouter_client.chat.completions.create(
-                    model=fallback_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt}
-                    ]
-                )
-                text = response.choices[0].message.content
-                # Very basic cleanup in case of markdown
-                text = text.replace("```json", "").replace("```", "").strip()
-                return json.loads(text).get("scenes", [])
-            except: pass
-
-        # 3. Try Ollama (Fallback)
-        try:
-            response = requests.post(
-                f"{self.ollama_url}/api/generate",
-                json={"model": "llama3.2", "prompt": f"{system_prompt}\n\n{user_prompt}", "stream": False, "format": "json"},
-                timeout=30
-            )
-            if response.status_code == 200:
-                text = response.json().get("response", "{}")
-                return json.loads(text).get("scenes", [])
-        except Exception as e:
-            print(f"ERROR: Ollama fallback failed for scenes: {e}.")
+                return json.loads(response).get("scenes", [])
+            except Exception as e:
+                print(f"ERROR: Failed to parse JSON scenes: {e}")
 
         # Ultimate fallback: Make the whole script one scene
         return [{"narration": script, "image_prompt": "Cinematic high-quality visual", "tone": "informative"}]
@@ -175,39 +66,11 @@ Script:
         """Generates 3 viral hooks. Hierarchy: Groq (Primary) -> Groq (Secondary) -> OpenRouter -> Ollama."""
         prompt = f"Based on this script, generate 3 viral hooks for a TikTok/Shorts video. Make them high-impact.\n\nScript: {script}"
         
-        # 1. Try Groq (Primary & Secondary Failover)
-        if self.groq_client:
-            for current_model in [self.model_name, self.groq_model_secondary]:
-                try:
-                    chat_completion = self.groq_client.chat.completions.create(
-                        messages=[{"role": "user", "content": prompt}],
-                        model=current_model,
-                    )
-                    return chat_completion.choices[0].message.content
-                except Exception as e:
-                    print(f"ERROR: Groq model {current_model} failed for hooks: {e}.")
-
-        # 2. Try OpenRouter (Secondary)
-        if self.openrouter_client:
-            try:
-                fallback_model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
-                response = self.openrouter_client.chat.completions.create(
-                    model=fallback_model,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                return response.choices[0].message.content
-            except: pass
-
-        # 3. Try Ollama (Fallback)
-        try:
-            response = requests.post(
-                f"{self.ollama_url}/api/generate",
-                json={"model": "llama3.2", "prompt": prompt, "stream": False},
-                timeout=15
-            )
-            return response.json().get("response", "")
-        except:
-            return "1. Viral Hook 1\n2. Viral Hook 2\n3. Viral Hook 3 (Fallback)"
+        response = self.router.route_request("You are a viral TikTok copywriter.", prompt, response_format="text")
+        if response:
+            return response
+            
+        return "1. Viral Hook 1\n2. Viral Hook 2\n3. Viral Hook 3 (Fallback)"
 
     def generate_upload_metadata(self, script: str, topic: str, category: str, hooks: str) -> dict:
         """
@@ -236,37 +99,12 @@ Return ONLY a JSON object with NO markdown, exactly this shape:
 Script excerpt (first 800 chars for context):
 {script[:800]}  # type: ignore
 """
-        # 1. Try Groq
-        if self.groq_client:
-            for model in [self.model_name, self.groq_model_secondary]:
-                try:
-                    resp = self.groq_client.chat.completions.create(
-                        messages=[
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user",   "content": user_prompt},
-                        ],
-                        model=model,
-                        response_format={"type": "json_object"},
-                    )
-                    return json.loads(resp.choices[0].message.content)
-                except Exception as e:
-                    print(f"WARN: Groq metadata gen failed ({model}): {e}")
-
-        # 2. Try OpenRouter
-        if self.openrouter_client:
+        response = self.router.route_request(system_prompt, user_prompt, response_format="json")
+        if response:
             try:
-                fallback_model = os.getenv("OPENROUTER_MODEL", "google/gemini-2.0-flash-001")
-                resp = self.openrouter_client.chat.completions.create(
-                    model=fallback_model,
-                    messages=[
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user",   "content": user_prompt},
-                    ],
-                )
-                text = resp.choices[0].message.content.replace("```json", "").replace("```", "").strip()
-                return json.loads(text)
+                return json.loads(response)
             except Exception as e:
-                print(f"WARN: OpenRouter metadata gen failed: {e}")
+                print(f"ERROR: Failed to parse JSON upload metadata: {e}")
 
         # Fallback — sensible defaults so upload never crashes
         return {

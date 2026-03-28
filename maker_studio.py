@@ -52,24 +52,36 @@ def main():
     parser.add_argument("--no-outro", dest="no_outro", action="store_true", help="Skip the Maeker Studios branded outro clip")
     parser.add_argument("--resume", metavar="JOB_ID", default=None,
                         help="Resume an interrupted job by its Job ID (e.g. 3f9a1b2c_ancient_china)")
-    parser.add_argument("--webhook", help="URL for progress notifications")
-    parser.add_argument("--json", action="store_true", help="Output results as JSON")
     args = parser.parse_args()
 
     # Load environment variables
     load_dotenv()
 
+    # Initialize JobManager
+    manager = JobManager()
+
     # Fail-Fast Configuration Validation
-    if not os.getenv("GROQ_API_KEY"):
-        print("\n[CRITICAL ERROR] GROQ_API_KEY is missing from .env file.")
-        print("Please update your .env file with a valid GROQ_API_KEY to avoid wasting credits or failing mid-job.")
+    active_llms = manager.generator.router.get_active_providers()
+    if not active_llms:
+        print("\n[CRITICAL ERROR] No LLM providers configured.")
+        print("Please set GROQ_API_KEY, OPENROUTER_API_KEY, or ensure Ollama is running.")
+        sys.exit(1)
+    else:
+        print(f"[MAKER STUDIO] Active LLM Providers: {', '.join(active_llms)}")
+        
+    if not os.getenv("ELEVENLABS_API_KEY") and args.produce:
+        print("\n[WARNING] ELEVENLABS_API_KEY is missing. Falling back to free Edge TTS voice engine.")
+
+    try:
+        import subprocess
+        subprocess.run(["ffmpeg", "-version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    except Exception:
+        print("\n[CRITICAL ERROR] ffmpeg is not installed or not found in system PATH.")
+        print("Please install ffmpeg (https://ffmpeg.org/download.html) before running Maker Studio.")
         sys.exit(1)
         
     # Automated Asset Cleanup
     cleanup_old_assets(days_assets=7, days_logs=30)
-
-    # Initialize JobManager
-    manager = JobManager(webhook_url=args.webhook)
 
     # Pass no_outro flag through to manager
     if args.no_outro:
@@ -95,30 +107,26 @@ def main():
         ))
 
     # Output results
-    if args.json:
-        import json
-        print(json.dumps(result, indent=4, default=str))
+    if result.get("status") == "Error":
+        print(f"\nCRITICAL ERROR: {result.get('message')}")
+        sys.exit(1)
     else:
-        if result.get("status") == "Error":
-            print(f"\nCRITICAL ERROR: {result.get('message')}")
-            sys.exit(1)
-        else:
-            job_id = result.get("job_id", "N/A")
-            topic  = result.get("topic", args.topic or args.resume)
-            meta   = result.get("upload_metadata", {})
-            print(f"\n--- JOB COMPLETE: {topic} ---")
-            print(f"Status  : {result.get('status')}")
-            print(f"Job ID  : {job_id}")
-            if meta:
-                print(f"\nYouTube Title : {meta.get('youtube_title', 'N/A')}")
-                print(f"TikTok Caption: {meta.get('tiktok_title', 'N/A')}")
-            if result.get("youtube_upload"):
-                yt = result["youtube_upload"]
-                print(f"YouTube Upload: {yt.get('status')} — {yt.get('url', '')}")
-            if result.get("tiktok_upload"):
-                tt = result["tiktok_upload"]
-                print(f"TikTok Upload : {tt.get('status')}")
-            print(f"\n(To resume this job later: --resume {job_id})")
+        job_id = result.get("job_id", "N/A")
+        topic  = result.get("topic", args.topic or args.resume)
+        meta   = result.get("upload_metadata", {})
+        print(f"\n--- JOB COMPLETE: {topic} ---")
+        print(f"Status  : {result.get('status')}")
+        print(f"Job ID  : {job_id}")
+        if meta:
+            print(f"\nYouTube Title : {meta.get('youtube_title', 'N/A')}")
+            print(f"TikTok Caption: {meta.get('tiktok_title', 'N/A')}")
+        if result.get("youtube_upload"):
+            yt = result["youtube_upload"]
+            print(f"YouTube Upload: {yt.get('status')} — {yt.get('url', '')}")
+        if result.get("tiktok_upload"):
+            tt = result["tiktok_upload"]
+            print(f"TikTok Upload : {tt.get('status')}")
+        print(f"\n(To resume this job later: --resume {job_id})")
 
 if __name__ == "__main__":
     main()

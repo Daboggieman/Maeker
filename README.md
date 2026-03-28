@@ -1,4 +1,4 @@
-# 🎬 Maker Studio
+# Maker Studio
 
 ### AI-Powered Video Production Suite
 
@@ -6,13 +6,13 @@ An advanced, fully automated content production system for **YouTube**, **TikTok
 
 ---
 
-## ⚡ Quick Start
+## Quick Start
 
 Double-click **`run_job.bat`** and follow the interactive prompts:
 
 1. **Enter your topic** — any subject, as long or short as you like
 2. **Pick a category** — numbered menu (History, Politics, Culture, Crime, etc.)
-3. **Choose a voice** — live list of up to 50 bold male narrative voices from ElevenLabs, ranked by quality
+3. **Choose a voice** — live list of up to 50 bold narrative voices from ElevenLabs, ranked by quality
 4. **Choose Platform** — outputs dynamically crop and sequence for either TikTok (`9:16`) or YouTube (`16:9`)
 5. **Confirm** — review your selections and press `Y` to start production
 
@@ -20,9 +20,9 @@ Output lands in `/assets/renders/` as a ready-to-upload `.mp4` featuring perfect
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
-Maker Studio is a **Hybrid Python + n8n** system. Python handles all heavy computation; n8n handles scheduling, webhooks, and approval workflows.
+Maker Studio is a **Native Python** system. Python handles all heavy computation, scheduling, and rendering natively.
 
 ```
 run_job.bat  ──►  maker_studio.py  ──►  manager.py (JobManager)
@@ -39,7 +39,7 @@ run_job.bat  ──►  maker_studio.py  ──►  manager.py (JobManager)
 
 ---
 
-## 🧠 AI Stack
+## AI Stack
 
 | Layer                 | Primary                        | Fallback                             |
 | --------------------- | ------------------------------ | ------------------------------------ |
@@ -53,7 +53,7 @@ run_job.bat  ──►  maker_studio.py  ──►  manager.py (JobManager)
 
 ---
 
-## 📁 Directory Structure
+## Directory Structure
 
 ```
 maker/
@@ -79,7 +79,7 @@ maker/
 
 ---
 
-## 🔧 Manual CLI Usage
+## Manual CLI Usage
 
 ```powershell
 # Basic production run (defaults to youtube_short 9:16)
@@ -90,14 +90,11 @@ maker/
 
 # Target specific platform (youtube 16:9, tiktok 9:16, youtube_short 9:16)
 .\venv\Scripts\python maker_studio.py --topic "Your Topic" --platform "youtube" --produce
-
-# JSON output (for n8n integration)
-.\venv\Scripts\python maker_studio.py --topic "Your Topic" --produce --json
 ```
 
 ---
 
-## 🔑 Environment Variables (`.env`)
+## Environment Variables (`.env`)
 
 | Variable               | Purpose                                    |
 | ---------------------- | ------------------------------------------ |
@@ -114,7 +111,7 @@ maker/
 
 ---
 
-## 🔄 Production Pipeline (per job)
+## Production Pipeline (per job)
 
 1. **Script Generation** — LLM writes a detailed, fact-rich narrative script for the topic
 2. **Fact Checking** — Secondary LLM pass verifies dates, events, and claims
@@ -122,9 +119,9 @@ maker/
 4. **Compliance Check** — Screens for YouTube policy violations
 5. **Dynamic Scene Breakdown** — Script is split into ~15-second cinematic scenes to maximize viewer engagement without blowing through API limits.
 6. **Asset Generation** (per scene, in parallel-ready chunked loops):
-   - 🎙️ ElevenLabs narration MP3 → Edge TTS on failure
-   - 🖼️ Pollinations image (flux → zimage → imagen-4 failover)
-   - 🔤 Dynamic Subtitles — Split perfectly line-by-line, perfectly timed to the TTS audio.
+   - ElevenLabs narration MP3 → Edge TTS on failure
+   - Pollinations image (flux → zimage → imagen-4 failover)
+   - Dynamic Subtitles — Split perfectly line-by-line, perfectly timed to the TTS audio.
 7. **Video Assembly** — MoviePy seamlessly stitches the clips with 1-second **crossfades**, rendering scenes in memory-friendly batches of 5 to prevent OOM errors, formatted precisely via `--platform`.
 8. **Save to DB** — Atomic JSON `.tmp` writes ensure Job State recovery never corrupts, and the final metadata is sent to MongoDB Atlas.
 
@@ -136,21 +133,14 @@ See [`55.txt`](./55.txt) for the full phased roadmap.
 
 | Phase                                                | Status         |
 | ---------------------------------------------------- | -------------- |
-| Phase 1 — Hybrid Infrastructure                      | ✅ Complete    |
-| Phase 2 — AI Creative Engine                         | ✅ Complete    |
-| Phase 3 — Production Pipeline + Interactive Launcher | ✅ Complete    |
-| Phase 4 — Scalability & Audit                        | 🔲 Pending     |
-| Phase 5 — Cinematic Expansion + Voice Cloning        | 🔄 In Progress |
+| Phase 1 — Hybrid Infrastructure                      | Complete       |
+| Phase 2 — AI Creative Engine                         | Complete       |
+| Phase 3 — Production Pipeline + Interactive Launcher | Complete       |
+| Phase 4 — Scalability & Audit                        | Pending        |
+| Phase 5 — Cinematic Expansion + Voice Cloning        | In Progress    |
 
 ---
 
-## 🔌 n8n Integration
 
-1. Install and run n8n locally
-2. Import `n8n_workflow_template.json` into your n8n dashboard
-3. The workflow sends topic + category to `maker_studio.py` via webhook, receives JSON results back
-4. Add `--json` flag to CLI args in the n8n Execute Command node
-
----
 
 _Built by Daboggieman — Maker Studio v3_

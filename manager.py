@@ -33,7 +33,7 @@ JOBS_DIR = "jobs"
 os.makedirs(JOBS_DIR, exist_ok=True)
 
 class JobManager:
-    def __init__(self, webhook_url=None):
+    def __init__(self):
         self.db = DatabaseManager()
         self.generator = ScriptGenerator()
         self.checker = FactChecker()
@@ -42,7 +42,6 @@ class JobManager:
         self.base_dir = self.v_creator.base_dir
         self.compliance = ComplianceEngine()
         self.outro = OutroMaker()
-        self.webhook_url = webhook_url
         self.state = {}
         self._state_lock = asyncio.Lock()
         self.scene_semaphore = asyncio.Semaphore(2)
@@ -59,7 +58,7 @@ class JobManager:
             logger.warning(f"Could not read/log run_job.bat: {e}")
 
     def _notify(self, message, status="InProgress"):
-        """Sends a pulse to n8n, logs it, and syncs state to MongoDB."""
+        """Logs status updates and syncs state to MongoDB."""
         logger.info(f"JOB STATUS: {message}")
         self.state["status"] = status
         self.state["last_message"] = message
@@ -69,17 +68,6 @@ class JobManager:
             self.db.save_content_metadata(self.state)
         except Exception as e:
             logger.warning(f"MongoDB real-time sync failed: {e}")
-
-        if self.webhook_url:
-            try:
-                requests.post(self.webhook_url, json={
-                    "topic": self.state.get("topic"),
-                    "status": status,
-                    "message": message,
-                    "job_id": self.state.get("job_id")
-                }, timeout=5)
-            except Exception as e:
-                logger.warning(f"Webhook notification failed: {e}")
 
     def _save_state(self):
         """Persists the current job state to jobs/{job_id}.json."""
@@ -153,82 +141,82 @@ class JobManager:
             completed = self.state.get("completed_scenes", [])
             cache_dir = os.path.join(self.base_dir, "assets", "cache", job_id)
         
-        if index in completed:
-            # Re-load asset paths from saved state
-            saved_assets = self.state.get("scene_assets", [])
-            for a in saved_assets:
-                if a.get("scene_index") == index:
-                    # Double check if the video cache actually exists
-                    video_cache = a.get("video_cache")
-                    if video_cache and os.path.exists(video_cache):
-                        logger.info(f"[resume] skipping scene {index + 1} (assets & cache exist).")
-                        return a
-                    else:
-                        logger.warning(f"[resume] scene {index + 1} missing cache — re-rendering clip.")
-                        # Fall through to re-render but skip image/audio gen if they exist
-                        break
+            if index in completed:
+                # Re-load asset paths from saved state
+                saved_assets = self.state.get("scene_assets", [])
+                for a in saved_assets:
+                    if a.get("scene_index") == index:
+                        # Double check if the video cache actually exists
+                        video_cache = a.get("video_cache")
+                        if video_cache and os.path.exists(video_cache):
+                            logger.info(f"[resume] skipping scene {index + 1} (assets & cache exist).")
+                            return a
+                        else:
+                            logger.warning(f"[resume] scene {index + 1} missing cache — re-rendering clip.")
+                            # Fall through to re-render but skip image/audio gen if they exist
+                            break
 
-        narration = scene.get("narration", "").strip()
-        image_prompt = scene.get("image_prompt", "").strip()
+            narration = scene.get("narration", "").strip()
+            image_prompt = scene.get("image_prompt", "").strip()
 
-        if not narration:
-            logger.warning(f"Scene {index + 1}: empty narration — skipping.")
-            return None
+            if not narration:
+                logger.warning(f"Scene {index + 1}: empty narration — skipping.")
+                return None
 
-        if not image_prompt:
-            image_prompt = f"A professional cinematic visual for: {topic}"
+            if not image_prompt:
+                image_prompt = f"A professional cinematic visual for: {topic}"
 
-        logger.info(f"[scene {index + 1}] Generating image...")
-        image_name = f"scene_{index}"
-        
-        async def _run_image_gen():
-            return await asyncio.to_thread(self.v_creator.generate_image, image_prompt, image_name, topic_folder=images_dir_name)
+            logger.info(f"[scene {index + 1}] Generating image...")
+            image_name = f"scene_{index}"
             
-        image_path_out = await self._with_retry(_run_image_gen)
+            async def _run_image_gen():
+                return await asyncio.to_thread(self.v_creator.generate_image, image_prompt, image_name, topic_folder=images_dir_name)
+                
+            image_path_out = await self._with_retry(_run_image_gen)
 
-        if not image_path_out:
-            logger.warning(f"Scene {index + 1}: image failed — skipping audio to preserve TTS quota.")
-            return None
+            if not image_path_out:
+                logger.warning(f"Scene {index + 1}: image failed — skipping audio to preserve TTS quota.")
+                return None
 
-        logger.info(f"[scene {index + 1}] Generating audio...")
-        audio_path = os.path.join(audio_dir, f"scene_{index}.mp3")
-        await self._with_retry(self.v_engine.generate_voice, narration, audio_path)
+            logger.info(f"[scene {index + 1}] Generating audio...")
+            audio_path = os.path.join(audio_dir, f"scene_{index}.mp3")
+            await self._with_retry(self.v_engine.generate_voice, narration, audio_path)
 
-        asset = {
-            "scene_index": index,
-            "audio": audio_path,
-            "image": image_path_out,
-            "narration": narration,
-        }
+            asset = {
+                "scene_index": index,
+                "audio": audio_path,
+                "image": image_path_out,
+                "narration": narration,
+            }
 
-        # --- Incremental Rendering (Plan 1) ---
-        os.makedirs(cache_dir, exist_ok=True)
-        video_cache_path = os.path.join(cache_dir, f"scene_{index}.mp4")
-        
-        # Determine video format from state or default
-        video_format = self.state.get("platform", "youtube_short")
-        if video_format in ["youtube_short", "tiktok"]:
-            v_fmt = "9:16"
-        else:
-            v_fmt = "16:9"
+            # --- Incremental Rendering (Plan 1) ---
+            os.makedirs(cache_dir, exist_ok=True)
+            video_cache_path = os.path.join(cache_dir, f"scene_{index}.mp4")
+            
+            # Determine video format from state or default
+            video_format = self.state.get("platform", "youtube_short")
+            if video_format in ["youtube_short", "tiktok"]:
+                v_fmt = "9:16"
+            else:
+                v_fmt = "16:9"
 
-        logger.info(f"[scene {index + 1}] Rendering scene segment...")
-        success = await asyncio.to_thread(
-            self.v_creator.create_scene_clip, asset, video_cache_path, format=v_fmt
-        )
-        
-        if success:
-            asset["video_cache"] = video_cache_path
-        else:
-            logger.error(f"Scene {index + 1}: Failed to render cached segment.")
+            logger.info(f"[scene {index + 1}] Rendering scene segment...")
+            success = await asyncio.to_thread(
+                self.v_creator.create_scene_clip, asset, video_cache_path, format=v_fmt
+            )
+            
+            if success:
+                asset["video_cache"] = video_cache_path
+            else:
+                logger.error(f"Scene {index + 1}: Failed to render cached segment.")
 
-        # Thread-safe state update
-        async with self._state_lock:
-            self.state.setdefault("completed_scenes", []).append(index)
-            self.state.setdefault("scene_assets", []).append(asset)
-            self._save_state()
+            # Thread-safe state update
+            async with self._state_lock:
+                self.state.setdefault("completed_scenes", []).append(index)
+                self.state.setdefault("scene_assets", []).append(asset)
+                self._save_state()
 
-        return asset
+            return asset
 
     async def _run_production(self, topic: str, script: str, job_id: str,
                                music: bool = False, platform: str = "youtube_short") -> str | None:
@@ -252,23 +240,17 @@ class JobManager:
 
         scenes_list = list(scenes)  # type: ignore
         total = len(scenes_list)
-        self._notify(f"Generating assets for {total} scenes in parallel...")
+        self._notify(f"Generating assets sequentially for {total} scenes...")
 
-        # --- Parallel asset generation ---
-        tasks = [
-            self._generate_scene_assets(i, scene, job_id, audio_dir, images_dir_name, topic)
-            for i, scene in enumerate(scenes_list)
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        # Collect valid assets in scene order
+        # --- Sequential asset generation ---
         scene_assets = []
-        for r in results:
-            if isinstance(r, Exception):
-                logger.warning(f"A scene generation task failed: {r}")
-            elif r is not None:
-                scene_assets.append(r)
-        scene_assets.sort(key=lambda a: a.get("scene_index", 0))
+        for i, scene in enumerate(scenes_list):
+            try:
+                r = await self._generate_scene_assets(i, scene, job_id, audio_dir, images_dir_name, topic)
+                if r is not None:
+                    scene_assets.append(r)
+            except Exception as e:
+                logger.warning(f"Scene {i+1} generation task failed: {e}")
 
         if not scene_assets:
             logger.warning("No valid scenes were generated, skipping video assembly.")
