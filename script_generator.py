@@ -97,7 +97,7 @@ Return ONLY a JSON object with NO markdown, exactly this shape:
 }}
 
 Script excerpt (first 800 chars for context):
-{script[:800]}  # type: ignore
+{script[:800]}
 """
         response = self.router.route_request(system_prompt, user_prompt, response_format="json")
         if response:

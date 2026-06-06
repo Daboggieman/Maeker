@@ -2,7 +2,7 @@ import os
 import sys
 import argparse
 import asyncio
-from dotenv import load_dotenv  # type: ignore
+from dotenv import load_dotenv
 from manager import JobManager
 
 def cleanup_old_assets(days_assets=7, days_logs=30):

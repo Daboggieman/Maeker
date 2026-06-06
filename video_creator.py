@@ -8,7 +8,7 @@ load_dotenv()
 
 class VideoCreator:
     def __init__(self, base_dir=None):
-        self.base_dir = base_dir or os.getenv("BASE_DIR", "c:\\Users\\RAPH-EXT\\maker")
+        self.base_dir = base_dir or os.getenv("BASE_DIR", os.path.dirname(os.path.abspath(__file__)))
         self.assets_dir = os.path.join(self.base_dir, "assets")
         self.renders_dir = os.path.join(self.base_dir, "assets", "renders")
         self.images_dir = os.path.join(self.base_dir, "assets", "images")
@@ -42,9 +42,6 @@ class VideoCreator:
                 encoded_prompt = quote(prompt)
                 # Determine output path with topic subfolder support
                 os.makedirs(folder_path, exist_ok=True)
-
-                # intentional Polite delay
-                time.sleep(3.5)
 
                 headers = {}
                 if api_key:
@@ -405,34 +402,46 @@ class VideoCreator:
             if music_path and os.path.exists(music_path):
                 temp_combined = os.path.join(self.renders_dir, f"temp_{output_name}.mp4")
                 
-                # Step 1: Fast concat video streams without re-encoding
-                subprocess.run([
-                    "ffmpeg", "-y", "-f", "concat", "-safe", "0", 
-                    "-i", concat_file_path, 
-                    "-c", "copy", temp_combined
-                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Step 1: Concat with re-encoding for consistent stream compatibility
+                r1 = subprocess.run([
+                    "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                    "-i", concat_file_path,
+                    "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+                    temp_combined
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                if r1.returncode != 0:
+                    print(f"ERROR: ffmpeg concat failed:\n{r1.stderr.decode(errors='replace')}")
+                    return None
                 
                 # Step 2: Mix background music (looping music stream, amix)
                 print(f"INFO: Mixing background music into '{output_path}'...")
                 music_safe = music_path.replace("\\", "/")
-                subprocess.run([
-                    "ffmpeg", "-y", "-i", temp_combined, 
+                r2 = subprocess.run([
+                    "ffmpeg", "-y", "-i", temp_combined,
                     "-stream_loop", "-1", "-i", music_safe,
                     "-filter_complex", "[1:a]volume=0.12[bg];[0:a][bg]amix=inputs=2:duration=first:dropout_transition=2[outa]",
                     "-map", "0:v", "-map", "[outa]",
-                    "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
+                    "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac", "-b:a", "192k",
                     output_path
-                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
                 
                 if os.path.exists(temp_combined):
                     os.remove(temp_combined)
+                    
+                if r2.returncode != 0:
+                    print(f"ERROR: ffmpeg music mix failed:\n{r2.stderr.decode(errors='replace')}")
+                    return None
             else:
-                # Direct concat
-                subprocess.run([
-                    "ffmpeg", "-y", "-f", "concat", "-safe", "0", 
-                    "-i", concat_file_path, 
-                    "-c", "copy", output_path
-                ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                # Direct concat with re-encoding for consistent stream compatibility
+                r = subprocess.run([
+                    "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                    "-i", concat_file_path,
+                    "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
+                    output_path
+                ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                if r.returncode != 0:
+                    print(f"ERROR: ffmpeg concat failed:\n{r.stderr.decode(errors='replace')}")
+                    return None
 
             if os.path.exists(concat_file_path):
                 os.remove(concat_file_path)
@@ -440,9 +449,6 @@ class VideoCreator:
             print(f"INFO: Successfully assembled final video: {output_path}")
             return output_path
             
-        except subprocess.CalledProcessError as e:
-            print(f"ERROR assembling multi-scene video via ffmpeg: {e}")
-            return None
         except Exception as e:
             print(f"ERROR assembling multi-scene video: {e}")
             traceback.print_exc()

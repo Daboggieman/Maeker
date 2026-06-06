@@ -1,16 +1,15 @@
 @echo off
 setlocal enabledelayedexpansion
 :: ============================================================
-::  MAKER STUDIO — AI video generator
+::  MAEKER STUDIO — AI video generator
 :: ============================================================
 cd /d "%~dp0"
 
-SET "PYTHON_EXE=c:\Users\RAPH-EXT\maker\venv\Scripts\python.exe"
-SET "SCRIPT_PATH=c:\Users\RAPH-EXT\maker\maker_studio.py"
-SET "PICK_VOICE=c:\Users\RAPH-EXT\maker\pick_voice.py"
+SET "PYTHON_EXE=%~dp0venv\Scripts\python.exe"
+SET "SCRIPT_PATH=%~dp0maker_studio.py"
+SET "PICK_VOICE=%~dp0pick_voice.py"
 SET "VOICE_TMP=%TEMP%\maker_voice_pick.txt"
 
-:: ── Sanity check ────────────────────────────────────────────
 if not exist "%PYTHON_EXE%" (
     echo [ERROR] Python venv not found at %PYTHON_EXE%
     pause & exit /b 1
@@ -172,7 +171,7 @@ echo.
 "%PYTHON_EXE%" "%SCRIPT_PATH%" --topic "%TOPIC%" --category "%CATEGORY%" --voice "%CHOSEN_VOICE%" --produce %MUSIC_FLAG% %UPLOAD_FLAG%
 
 echo.
-if %ERRORLEVEL% NEQ 0 (
+if !ERRORLEVEL! NEQ 0 (
     echo  [CRITICAL ERROR] The job failed. Check logs\maker.log for details.
 ) else (
     echo  [SUCCESS] Job completed! Check the assets\renders\ folder for your video.

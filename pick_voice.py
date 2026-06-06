@@ -85,7 +85,7 @@ def main():
 
     print()
     print("  ============================================================")
-    print("   AVAILABLE VOICES  (Bold Male Narrative — Top 50)")
+    print("   AVAILABLE VOICES " )
     print("  ============================================================")
     for i, v in enumerate(scored, start=1):
         labels   = v.get("labels", {})
@@ -110,7 +110,6 @@ def main():
             idx = int(raw)
             if 1 <= idx <= len(scored):
                 full_name  = scored[idx - 1]["name"]
-                # ElevenLabs API names are the part before any ' - ' suffix
                 api_name   = full_name.split(" - ")[0].strip()
                 print()
                 print(f"  >> Selected: {full_name}")

@@ -1,6 +1,6 @@
 import os
-from pymongo import MongoClient  # type: ignore
-from dotenv import load_dotenv  # type: ignore
+from pymongo import MongoClient # type: ignore
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -13,9 +13,8 @@ class DatabaseManager:
             self.db = None
         else:
             try:
-                # Setting a shorter timeout so it doesn't hang for 20+ seconds
+                # Setting a shorter timeout 
                 client = MongoClient(self.uri, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
-                # Test connection immediately
                 client.admin.command('ping')
                 self.client = client
                 self.db = client['maker_studio']

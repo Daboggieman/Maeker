@@ -1,6 +1,6 @@
 import os
 import json
-from llm_router import LLMRouter  # pyre-ignore
+from llm_router import LLMRouter
 
 class ComplianceEngine:
     def __init__(self, model="llama-3.3-70b-versatile"):
@@ -41,7 +41,7 @@ class ComplianceEngine:
             "You are an expert script editor. Your task is to rewrite the provided script "
             "to resolve the following compliance issues: " + ", ".join(issues) + ". "
             "Ensure the final script is strictly compliant with YouTube and TikTok community guidelines "
-            "while maintaining the original educational or historical value. "
+            "while maintaining the original educational, informative or historical value. "
             "Do not remove necessary historical facts, but rephrase them to avoid gore/graphic/harmful/sexualizing/misinformation/disinformation/etc descriptions."
         )
         user_prompt = f"Original Script: {script}"

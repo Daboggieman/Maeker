@@ -33,7 +33,7 @@ JOBS_DIR = "jobs"
 os.makedirs(JOBS_DIR, exist_ok=True)
 
 class JobManager:
-    def __init__(self):
+    def __init__(self, status_callback=None):
         self.db = DatabaseManager()
         self.generator = ScriptGenerator()
         self.checker = FactChecker()
@@ -45,6 +45,7 @@ class JobManager:
         self.state = {}
         self._state_lock = asyncio.Lock()
         self.scene_semaphore = asyncio.Semaphore(2)
+        self.status_callback = status_callback
 
     def _log_bat_file(self):
         """Reads run_job.bat and records it in the current logger."""
@@ -57,11 +58,32 @@ class JobManager:
         except Exception as e:
             logger.warning(f"Could not read/log run_job.bat: {e}")
 
+    def _cleanup_log_handler(self):
+        """Removes and closes the per-job log file handler to prevent handler accumulation."""
+        handler = getattr(self, '_current_log_handler', None)
+        if handler:
+            try:
+                logger.removeHandler(handler)
+                handler.close()
+            except Exception:
+                pass
+            self._current_log_handler = None
+
     def _notify(self, message, status="InProgress"):
         """Logs status updates and syncs state to MongoDB."""
         logger.info(f"JOB STATUS: {message}")
         self.state["status"] = status
         self.state["last_message"] = message
+
+        if self.status_callback:
+            try:
+                if asyncio.iscoroutinefunction(self.status_callback):
+                    # We are generally inside an async function like run_job
+                    asyncio.create_task(self.status_callback(message))
+                else:
+                    self.status_callback(message)
+            except Exception as e:
+                logger.warning(f"Status callback failed: {e}")
 
         # Real-time Sync to MongoDB
         try:
@@ -276,10 +298,11 @@ class JobManager:
         if not video_file:
             return None
 
-        # --- Outro append (always on) ---
-        self._notify("Appending Maeker Studios outro...")
-        outro_path = await asyncio.to_thread(self.outro.build_outro)
-        video_file = await asyncio.to_thread(self.v_creator.append_outro, video_file, outro_path)
+        # --- Outro append ---
+        if self.outro is not None:
+            self._notify("Appending Maeker Studios outro...")
+            outro_path = await asyncio.to_thread(self.outro.build_outro)
+            video_file = await asyncio.to_thread(self.v_creator.append_outro, video_file, outro_path)
 
         return video_file
 
@@ -296,11 +319,13 @@ class JobManager:
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         logger.addHandler(file_handler)
+        self._current_log_handler = file_handler
 
         self.state = {
             "job_id": job_id,
             "topic": topic,
             "category": category,
+            "platform": platform,
             "status": "Started",
             "completed_scenes": [],
             "scene_assets": [],
@@ -310,7 +335,6 @@ class JobManager:
             logger.info(f"Using voice: {voice}")
 
         logger.info(f"[JOB ID] {job_id}")
-        self._log_bat_file()
         self._notify(f"Starting job for topic: {topic}")
         self._save_state()
 
@@ -318,7 +342,7 @@ class JobManager:
             # 1. Script Generation
             self._notify("Generating script...")
             script = await self._with_retry(self.generator.generate_script, topic, category)
-            if not isinstance(script, str) or "Error" in script:
+            if not isinstance(script, str) or not script.strip():
                 raise Exception("Script generation failed after retries.")
             self.state["script"] = script
             self._save_state()
@@ -363,7 +387,7 @@ class JobManager:
 
             if produce:
                 # 5. Scene generation + video assembly + outro
-                video_file = await self._run_production(topic, script, job_id, music=music)
+                video_file = await self._run_production(topic, script, job_id, music=music, platform=platform)
                 if video_file:
                     self.state["video_file"] = video_file
                     self._notify("Video production complete.")
@@ -405,6 +429,7 @@ class JobManager:
             self._notify("Job finished successfully!", status="Complete")
             self._save_state()
             self.db.save_content_metadata(self.state)
+            self._cleanup_log_handler()
             return self.state
 
         except Exception as e:
@@ -413,6 +438,7 @@ class JobManager:
             self._notify(error_msg, status="Error")
             self.state["status"] = "Error"
             self._save_state()
+            self._cleanup_log_handler()
             return {"status": "Error", "message": error_msg}
 
     async def resume_job(self, job_id: str, voice=None, music=False, upload=False, platform="youtube_short"):
@@ -437,9 +463,9 @@ class JobManager:
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
         logger.addHandler(file_handler)
+        self._current_log_handler = file_handler
 
         completed = self.state.get("completed_scenes", [])
-        self._log_bat_file()
         self._notify(f"Resuming job '{job_id}' — {len(completed)} scene(s) already completed.")
 
         try:
@@ -448,12 +474,6 @@ class JobManager:
             script = self.state["script"]
             job_id = self.state["job_id"]
             category = self.state.get("category", "General")
-
-            # Determine how many scenes are actually finished (have audio & image)
-            completed_count = 0
-            for s in self.state["scenes"]:
-                if "audio" in s and "image" in s:
-                    completed_count = completed_count + 1  # type: ignore
 
             if "platform" not in self.state:
                 self.state["platform"] = platform
@@ -501,6 +521,7 @@ class JobManager:
             self._notify("Resumed job finished successfully!", status="Complete")
             self._save_state()
             self.db.save_content_metadata(self.state)
+            self._cleanup_log_handler()
             return self.state
 
         except Exception as e:
@@ -509,4 +530,5 @@ class JobManager:
             self._notify(error_msg, status="Error")
             self.state["status"] = "Error"
             self._save_state()
+            self._cleanup_log_handler()
             return {"status": "Error", "message": error_msg}

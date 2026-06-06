@@ -1,8 +1,8 @@
-# maker Studio – BUILD DOCUMENT
+# Maker Studio – BUILD DOCUMENT
 
 ## 1. PROJECT OVERVIEW
 
-**maker Studio** is an advanced content automation suite designed to bridge the gap between historical accuracy and modern digital engagement. The system specializes in:
+**Maker Studio** is an advanced content automation suite designed to bridge the gap between historical accuracy and modern digital engagement. The system specializes in:
 
 - **Historical Content**: Meticulous reconstruction of Bible events and world history (rise/fall of empires, world-changing wars, pivotal figures) with **automated AI fact-checking**.
 - **Automated News**: Fetching breaking news stories or **manually inputting custom topics** to generate engaging content.
@@ -12,38 +12,43 @@
 
 - **Universal Reach**: Automate high-quality content production for YouTube (Long-form) and TikTok/Shorts (Vertical) with **multi-choice viral hooks**.
 - **Absolute Integrity**: Ensure historical and biblical accuracy via a **secondary LLM fact-checking layer**.
-- **Human-in-the-Loop**: Integrated manual approval stages and **manual topic override** for premium quality control.
+- **Human-in-the-Loop**: Manual topic input and production confirmation for quality control.
 - **Policy Compliance**: Fully compliant with YouTube and TikTok community guidelines and monetization policies.
 - **Scalable Architecture**: Built for growth, allowing for multi-channel management from a single instance.
 
-## 3. TECH STACK (The Hybrid Power-House)
+## 3. TECH STACK
 
-- **Orchestration & Director**: **n8n** (Visual workflow management, scheduling, and API triggers)
-- **Production & Processing Engine**: **Python** (Handles complex AI logic, FFmpeg, and data processing)
+- **Production & Processing Engine**: **Python** (Handles all AI logic, rendering, and data processing)
+- **Control & Monitoring**: **Telegram Bot** (Remote job triggering, status updates, video delivery)
 - **Database**: MongoDB Atlas (Unified storage for metadata and job tracking)
 - **Intelligence Layer (AI)**:
-  - OpenAI GPT-4o / Claude 3.5 Sonnet / Gemini 1.5 Pro
-  - _Free/Open Source Alternatives_: DeepSeek via Python or Ollama.
+  - Groq `llama-3.3-70b-versatile` (primary)
+  - OpenRouter `google/gemini-2.5-flash` (fallback)
 - **Voice Synthesis**:
-  - ElevenLabs (Premium) / Edge-TTS (Free Python integration).
-- **Video Engine**: **FFmpeg-python** (Scripted high-end video manipulation)
+  - ElevenLabs (Premium) / Edge-TTS (Fallback)
+- **Video Engine**: **MoviePy** (Multi-scene video assembly, 16:9 / 9:16)
+- **Image Generation**: Pollinations (`flux` → `zimage` → `imagen-4` failover)
 - **Storage**: Local filesystem for media assets and temporary work.
-- **Upload Strategy**: Manual verification flow + automated API triggers via n8n.
 
 ## 4. SYSTEM ARCHITECTURE & WORKFLOW
 
-```mermaid
-graph TD
-    A1[News APIs & Bible Data] --> B{n8n Orchestrator}
-    A2[MANUAL TOPIC INPUT] --> B
-    B -->|Trigger Job| C[Python Processing Suite]
-    C -->|AI Logic| D[Script & Voice Generation]
-    D --> E[FFmpeg Video Assembly]
-    E -->|Success Callback| B
-    B --> F{Quality Assurance: Manual Approval}
-    F -->|Approved| G[Social Media Upload Pipeline]
-    F -->|Rejected| C
-    G --> H[(MongoDB Atlas: Persistence)]
+```
+Telegram Bot (phone)
+      │  /job "Topic" History
+      ▼
+maker_studio.py  ──►  manager.py (JobManager)
+                              │
+          ┌───────────────────┼───────────────────┐
+          ▼                   ▼                   ▼
+ script_generator.py   voice_engine.py    video_creator.py
+ (LLM script+scenes)   (ElevenLabs TTS)  (Pollinations img
+                                          + MoviePy render)
+          │
+          ▼
+ fact_checker.py  ──►  compliance_engine.py  ──►  database_manager.py
+          │
+          ▼
+ Telegram Bot sends .mp4 back to phone
 ```
 
 ## 5. CONTENT STRATEGY

@@ -11,10 +11,9 @@ from dotenv import load_dotenv  # type: ignore
 
 load_dotenv()
 
-OUTRO_DURATION = 8.0   # seconds
+OUTRO_DURATION = 8.0
 FPS = 24
 WIDTH, HEIGHT = 1920, 1080
-OUTRO_PATH = os.path.join(os.getenv("ASSETS_DIR", "assets"), "outro", "maeker_outro.mp4")
 
 # Brand colours
 BLACK  = (0, 0, 0)
@@ -44,7 +43,6 @@ LOGO_PATH = os.path.join("media", "maeker logo.png")
 _logo_img = None
 try:
     _logo_img = Image.open(LOGO_PATH).convert("RGBA")
-    # Pre-scale logo so it's a good size (approx 600px wide)
     target_w = 600
     wpercent = (target_w / float(_logo_img.size[0]))
     hsize = int((float(_logo_img.size[1]) * float(wpercent)))
@@ -67,13 +65,13 @@ def _make_frame(t: float) -> np.ndarray:
     img = Image.new("RGBA", (WIDTH, HEIGHT), (*BLACK, 255))
     draw = ImageDraw.Draw(img)
 
-    # ── LOGO & "MAEKER" ───────────────────────────────────────────────────
+    # LOGOs
     fade_maeker = _ease_in_out(min(1.0, t / 1.5))
     if fade_maeker > 0:
         alpha = int(255 * fade_maeker)
         logo_y_bottom = HEIGHT // 2 - 10  # Track where logo ends
         
-        # 1. Image Logo
+        # Image Logo
         if _logo_img:
             logo_frame = _logo_img.copy()
             if logo_frame.mode == "RGBA":
@@ -83,13 +81,12 @@ def _make_frame(t: float) -> np.ndarray:
             
             lw, lh = logo_frame.size
             logo_x = (WIDTH - lw) // 2
-            # Offset logo much higher to make room for both lines of text
-            logo_y = HEIGHT // 2 - lh - 90
+            logo_y = HEIGHT // 2 - lh - 80
             logo_y_bottom = logo_y + lh
             
             img.paste(logo_frame, (logo_x, logo_y), logo_frame)
             
-        # 2. "MAEKER" Text (Right below the logo, above STUDIOS)
+        # "MAEKER" text
         font_m = _load_font(120, bold=True)
         text_m = "MAEKER"
         bbox_m = draw.textbbox((0, 0), text_m, font=font_m)
@@ -102,7 +99,7 @@ def _make_frame(t: float) -> np.ndarray:
             fill=(*WHITE, alpha)
         )
 
-    # ── "STUDIOS" ─────────────────────────────────────────────────────────
+    # "STUDIOS"
     fade_studios = _ease_in_out(max(0.0, min(1.0, (t - 1.0) / 1.3)))
     if fade_studios > 0:
         font_s = _load_font(80, bold=False)
@@ -121,7 +118,7 @@ def _make_frame(t: float) -> np.ndarray:
             fill=(r, g, b, 255),
         )
 
-    # ── Gold rule ─────────────────────────────────────────────────────────
+    # Gold rule
     rule_progress = _ease_in_out(max(0.0, min(1.0, (t - 2.0) / 1.2)))
     if rule_progress > 0:
         rule_y = HEIGHT // 2 + 160
@@ -129,12 +126,11 @@ def _make_frame(t: float) -> np.ndarray:
         rule_right = rule_left + int(800 * rule_progress)
         draw.rectangle([rule_left, rule_y, rule_right, rule_y + 3], fill=(*GOLD, 255))
 
-    # ── Animated CTA (Like, Subscribe, Share) ─────────────────────────────
+    # Animated CTA (Like, Subscribe, Share)
     # Fades in and slides up between 3.0s and 4.5s
     cta_progress = _ease_in_out(max(0.0, min(1.0, (t - 3.0) / 1.5)))
     if cta_progress > 0:
         font_cta = _load_font(50, bold=True)
-        # Using simple unicode symbols that PIL can render easily
         text_cta = "LIKE     SUBSCRIBE     SHARE"
         bbox_cta = draw.textbbox((0, 0), text_cta, font=font_cta)
         tw_cta, th_cta = bbox_cta[2] - bbox_cta[0], bbox_cta[3] - bbox_cta[1]
@@ -152,14 +148,13 @@ def _make_frame(t: float) -> np.ndarray:
             font=font_cta,
             fill=(255, 255, 255, cta_alpha),
         )
-
-    # Convert back to RGB array for MoviePy (which expects 3 channels usually)
     return np.array(img.convert("RGB"))
 
 
 class OutroMaker:
     def __init__(self):
-        self.outro_path = OUTRO_PATH
+        assets_dir = os.getenv("ASSETS_DIR", os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets"))
+        self.outro_path = os.path.join(assets_dir, "outro", "maeker_outro.mp4")
 
     def build_outro(self) -> str:
         """Render and cache the outro clip. Returns the path to the mp4 file."""

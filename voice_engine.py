@@ -76,7 +76,7 @@ class VoiceEngine:
                     "voice_settings": {"stability": 0.5, "similarity_boost": 0.5}
                 }
                 try:
-                    response = requests.post(url, json=data, headers=headers, timeout=60)
+                    response = await asyncio.to_thread(requests.post, url, json=data, headers=headers, timeout=60)
                     if response.status_code == 200:
                         with open(output_path, 'wb') as f:
                             f.write(response.content)

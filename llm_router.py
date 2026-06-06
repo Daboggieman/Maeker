@@ -1,9 +1,9 @@
 import os
 import time
-import requests # type: ignore
-from groq import Groq, RateLimitError, APIStatusError, APIError # type: ignore
+import requests
+from groq import Groq, RateLimitError, APIStatusError, APIError # type: ignore 
 from openai import OpenAI, RateLimitError as OpenAIRateLimitError, APIStatusError as OpenAIAPIStatusError, APIError as OpenAIAPIError # type: ignore
-from dotenv import load_dotenv # type: ignore
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -37,10 +37,7 @@ class LLMRouter:
     def route_request(self, system_prompt: str, user_prompt: str, response_format: str = "text") -> str | None:
         """
         Executes a robust multi-provider fallback.
-        1. Groq (Primary Model)
-        2. Groq (Secondary Model)
-        3. OpenRouter (Secondary Provider)
-        4. Ollama (Local Fallback)
+        Groq (Primary Model) »»» Groq (Secondary Model) »»» OpenRouter (Secondary Provider) »»» Ollama (Local Fallback)
         """
         messages = [
             {"role": "system", "content": system_prompt},
@@ -51,23 +48,22 @@ class LLMRouter:
         if response_format == "json":
             kwargs["response_format"] = {"type": "json_object"}
 
-        # 1 & 2. Groq Attempts
+        # Groq
         if self.groq_client:
             for current_model in [self.primary_groq, self.secondary_groq]:
                 try:
                     return self._execute_groq(messages, current_model, **kwargs)
                 except Exception as e:
-                    # _execute_groq handles the wait/pass logic. If it bubbles up here, it means we MUST failover.
                     print(f"WARN: Groq model {current_model} exhausted/failed: {e}")
 
-        # 3. OpenRouter Attempt
+        # OpenRouter
         if self.openrouter_client:
             try:
                 return self._execute_openrouter(messages, self.openrouter_model, **kwargs)
             except Exception as e:
                 print(f"WARN: OpenRouter {self.openrouter_model} exhausted/failed: {e}")
 
-        # 4. Ollama Attempt
+        # Ollama
         try:
             return self._execute_ollama(system_prompt, user_prompt, response_format)
         except Exception as e:
@@ -81,21 +77,21 @@ class LLMRouter:
         max_retries = 2
         for attempt in range(max_retries):
             try:
-                response = self.groq_client.chat.completions.create( # type: ignore
+                response = self.groq_client.chat.completions.create(
                     messages=messages,
                     model=model,
                     **kwargs
                 )
-                return response.choices[0].message.content # type: ignore
+                return response.choices[0].message.content
             except RateLimitError as e:
                 # HTTP 429
-                wait_time = min(15 * (attempt + 1), 35) # Max wait ~35 seconds
+                wait_time = min(15 * (attempt + 1), 35)
                 print(f"WARN: [GROQ 429] Rate Limit on {model}. Retrying in {wait_time}s... (Attempt {attempt+1}/{max_retries})")
                 time.sleep(wait_time)
-            except APIStatusError as e: # type: ignore
-                status = e.status_code # type: ignore
+            except APIStatusError as e:
+                status = e.status_code
                 if status in [502, 503]:
-                    # Server overload, wait and retry
+                    # Server overload, wait and retry logic
                     wait_time = min(10 * (attempt + 1), 30)
                     print(f"WARN: [GROQ {status}] Server Overloaded on {model}. Retrying in {wait_time}s... (Attempt {attempt+1}/{max_retries})")
                     time.sleep(wait_time)
@@ -115,20 +111,21 @@ class LLMRouter:
         max_retries = 2
         for attempt in range(max_retries):
             try:
-                # Provide a hard prompt instruction if we can't use schema enforcement natively
+                # Work on a copy to avoid mutating the shared messages list across retries
+                msgs = [{"role": m["role"], "content": m["content"]} for m in messages]
                 if "response_format" in kwargs and kwargs["response_format"].get("type") == "json_object":
-                    if "JSON" not in messages[0]["content"]:
-                        messages[0]["content"] += "\nReturn strictly as JSON without markdown blocks."
+                    if "JSON" not in msgs[0]["content"]:
+                        msgs[0]["content"] += "\nReturn strictly as JSON without markdown blocks."
                         
-                response = self.openrouter_client.chat.completions.create( # type: ignore
-                    messages=messages,
+                response = self.openrouter_client.chat.completions.create(
+                    messages=msgs,
                     model=model,
                     extra_headers={
                         "HTTP-Referer": "https://maker.studio",
                         "X-Title": "Maker Studio",
                     }
                 )
-                content = response.choices[0].message.content # type: ignore
+                content = response.choices[0].message.content
                 
                 # Cleanup markdown blocks if json requested
                 if "response_format" in kwargs:
@@ -139,8 +136,8 @@ class LLMRouter:
                 wait_time = min(15 * (attempt + 1), 35) 
                 print(f"WARN: [OpenRouter 429] Rate Limit on {model}. Retrying in {wait_time}s... (Attempt {attempt+1}/{max_retries})")
                 time.sleep(wait_time)
-            except OpenAIAPIStatusError as e: # type: ignore
-                status = e.status_code # type: ignore
+            except OpenAIAPIStatusError as e:
+                status = e.status_code 
                 if status == 402:
                     print("CRITICAL: [OpenRouter 402] Out of Credits! Instantly skipping provider.")
                     raise e
