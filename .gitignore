@@ -1,11 +1,13 @@
 node_modules
 .n8n
 __pycache__
-.env
 jobs
 raw_feeds
 temp
 assets
+audio
+images
 logs
 venv
+tasks
 *.mp4

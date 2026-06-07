@@ -1,10 +1,12 @@
 import os
+import logging
 import requests  # type: ignore
 import random
 from urllib.parse import quote
 from dotenv import load_dotenv  # type: ignore
 
 load_dotenv()
+logger = logging.getLogger("MakerStudio")
 
 class VideoCreator:
     def __init__(self, base_dir=None):
@@ -13,22 +15,30 @@ class VideoCreator:
         self.renders_dir = os.path.join(self.base_dir, "assets", "renders")
         self.images_dir = os.path.join(self.base_dir, "assets", "images")
         
-        # Ensure image dir exists
+        # Ensure asset directories exist
         os.makedirs(self.images_dir, exist_ok=True)
+        os.makedirs(self.renders_dir, exist_ok=True)
+        logger.info(f"VideoCreator render directory: {self.renders_dir}")
 
-    def generate_image(self, prompt, output_name, topic_folder=None):
-        """Generates an image using the premium gen.pollinations.ai API with model failover."""
+    def generate_image(self, prompt, output_name, topic_folder=None, width: int | None = None, height: int | None = None):
+        """Generates an image using the premium gen.pollinations.ai API with model failover.
+        Accepts optional `width` and `height` to request images matching the target video resolution.
+        """
         import time
         api_key = os.getenv("POLLINATIONS_API_KEY")
         max_retries = 5
 
         models = ["flux", "zimage", "imagen-4"]
 
+        # Determine target size (default to 1280x720)
+        target_w = width or 1280
+        target_h = height or 720
+
         # --- Cache: skip generation if file already exists ---
         folder_path = self.images_dir
         if topic_folder:
             folder_path = os.path.join(self.images_dir, topic_folder)
-        output_path = os.path.join(folder_path, f"{output_name}.jpg")
+        output_path = os.path.join(folder_path, f"{output_name}_{target_w}x{target_h}.jpg")
         if os.path.exists(output_path):
             print(f"[cache] Image already exists, skipping generation: {output_path}")
             return output_path
@@ -49,7 +59,7 @@ class VideoCreator:
 
                 url = (
                     f"https://gen.pollinations.ai/image/{encoded_prompt}"
-                    f"?model={model}&seed={seed}&width=1280&height=720&nologo=true"
+                    f"?model={model}&seed={seed}&width={target_w}&height={target_h}&nologo=true"
                 )
 
                 response = requests.get(url, headers=headers, timeout=45)
@@ -216,8 +226,9 @@ class VideoCreator:
             img_array = np.array(img)
             clip = ImageClip(img_array).with_duration(time_per_line)
             
-            # Position the clip at the direct center of the screen
-            clip = clip.with_start(current_start_time).with_position(('center', 'center')) # type: ignore
+            # Position the clip very near the bottom center of the screen (smaller margin)
+            y_pos = max(10, int(height - img_h - 20))
+            clip = clip.with_start(current_start_time).with_position(('center', y_pos)) # type: ignore
             
             subtitle_clips.append(clip)
             current_start_time += time_per_line
@@ -375,29 +386,34 @@ class VideoCreator:
         """
         import subprocess
         import traceback
-        output_path = os.path.join(self.renders_dir, f"{output_name}.mp4")
+        output_path = os.path.abspath(os.path.join(self.renders_dir, f"{output_name}.mp4"))
 
         try:
-            print(f"INFO: Assembling multi-scene video '{output_name}' with {len(scene_assets)} scenes via ffmpeg...")
+            logger.info(f"Assembling multi-scene video '{output_name}' with {len(scene_assets)} scenes via ffmpeg...")
             
             # Ensure all scenes have their video_cache ready
             for i, asset in enumerate(scene_assets):
                 if not asset.get("video_cache") or not os.path.exists(asset.get("video_cache")):
-                    print(f"WARN: Scene {i+1} is missing its video_cache. Attempting to render it...")
+                    logger.warning(f"Scene {i+1} is missing its video_cache. Attempting to render it...")
                     temp_cache = os.path.join(self.renders_dir, f"temp_cache_{output_name}_{i}.mp4")
                     if self.create_scene_clip(asset, temp_cache, format):
                         asset["video_cache"] = temp_cache
                     else:
-                        print(f"ERROR: Could not render missing cache for scene {i+1}.")
+                        logger.error(f"Could not render missing cache for scene {i+1}.")
                         return None
             
-            # Create concat list file
-            concat_file_path = os.path.join(self.renders_dir, f"concat_{output_name}.txt")
+            # Create concat list file with absolute paths so ffmpeg resolves files correctly
+            concat_file_path = os.path.abspath(os.path.join(self.renders_dir, f"concat_{output_name}.txt"))
             with open(concat_file_path, "w", encoding="utf-8") as f:
                 for asset in scene_assets:
-                    # ffmpeg requires forward slashes or escaped backslashes
-                    safe_path = asset['video_cache'].replace("\\", "/")
+                    abs_cache_path = os.path.abspath(asset['video_cache'])
+                    safe_path = abs_cache_path.replace("\\", "/")
+                    logger.debug(f"Concat source: {safe_path}")
                     f.write(f"file '{safe_path}'\n")
+
+            concat_file_path_safe = concat_file_path.replace("\\", "/")
+            logger.info(f"Created FFmpeg concat list: {concat_file_path}")
+            logger.info(f"Final video output expected at: {output_path}")
 
             if music_path and os.path.exists(music_path):
                 temp_combined = os.path.join(self.renders_dir, f"temp_{output_name}.mp4")
@@ -405,16 +421,17 @@ class VideoCreator:
                 # Step 1: Concat with re-encoding for consistent stream compatibility
                 r1 = subprocess.run([
                     "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                    "-i", concat_file_path,
+                    "-i", concat_file_path_safe,
                     "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
                     temp_combined
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
                 if r1.returncode != 0:
-                    print(f"ERROR: ffmpeg concat failed:\n{r1.stderr.decode(errors='replace')}")
+                    logger.error("FFmpeg concat step failed during initial assembly.")
+                    logger.error(r1.stderr.decode(errors='replace'))
                     return None
                 
                 # Step 2: Mix background music (looping music stream, amix)
-                print(f"INFO: Mixing background music into '{output_path}'...")
+                logger.info(f"Mixing background music into '{output_path}'...")
                 music_safe = music_path.replace("\\", "/")
                 r2 = subprocess.run([
                     "ffmpeg", "-y", "-i", temp_combined,
@@ -429,29 +446,31 @@ class VideoCreator:
                     os.remove(temp_combined)
                     
                 if r2.returncode != 0:
-                    print(f"ERROR: ffmpeg music mix failed:\n{r2.stderr.decode(errors='replace')}")
+                    logger.error("FFmpeg music mix step failed during final assembly.")
+                    logger.error(r2.stderr.decode(errors='replace'))
                     return None
             else:
                 # Direct concat with re-encoding for consistent stream compatibility
                 r = subprocess.run([
                     "ffmpeg", "-y", "-f", "concat", "-safe", "0",
-                    "-i", concat_file_path,
+                    "-i", concat_file_path_safe,
                     "-c:v", "libx264", "-preset", "ultrafast", "-c:a", "aac",
                     output_path
                 ], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
                 if r.returncode != 0:
-                    print(f"ERROR: ffmpeg concat failed:\n{r.stderr.decode(errors='replace')}")
+                    logger.error("FFmpeg concat step failed during final assembly.")
+                    logger.error(r.stderr.decode(errors='replace'))
                     return None
 
             if os.path.exists(concat_file_path):
                 os.remove(concat_file_path)
                 
-            print(f"INFO: Successfully assembled final video: {output_path}")
+            logger.info(f"Successfully assembled final video: {output_path}")
             return output_path
             
         except Exception as e:
-            print(f"ERROR assembling multi-scene video: {e}")
-            traceback.print_exc()
+            logger.error(f"ERROR assembling multi-scene video: {e}")
+            logger.exception(e)
             return None
 
     def append_outro(self, main_video_path: str, outro_path: str) -> str:

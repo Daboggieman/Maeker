@@ -190,10 +190,24 @@ class JobManager:
 
             logger.info(f"[scene {index + 1}] Generating image...")
             image_name = f"scene_{index}"
-            
+
+            # Determine desired image size based on target video format
+            video_format = self.state.get("platform", "youtube_short")
+            if video_format in ["youtube_short", "tiktok"]:
+                img_w, img_h = 720, 1280
+            else:
+                img_w, img_h = 1280, 720
+
             async def _run_image_gen():
-                return await asyncio.to_thread(self.v_creator.generate_image, image_prompt, image_name, topic_folder=images_dir_name)
-                
+                return await asyncio.to_thread(
+                    self.v_creator.generate_image,
+                    image_prompt,
+                    image_name,
+                    topic_folder=images_dir_name,
+                    width=img_w,
+                    height=img_h,
+                )
+
             image_path_out = await self._with_retry(_run_image_gen)
 
             if not image_path_out:
