@@ -4,12 +4,13 @@ __pycache__
 jobs
 raw_feeds
 temp
+outro
 assets
 audio
 images
 logs
 venv
 tasks
-*.mp4
 .env
+*.mp4
 *.log
