@@ -1,8 +1,10 @@
-# Maker Studio
+# Maeker Studio v2
 
-### AI-Powered Video Production Suite
+### AI-Powered Video Production Suite — Rebuilt for Reliability
 
-An advanced, fully automated content production system for **YouTube**, **TikTok**, and **News** platforms. Maker Studio takes a single topic and produces a complete multi-scene narrated video — script, voiceover, images, and final render — with zero manual intervention after launch.
+This is the `maeker-v2` repository: a refreshed version of the original Maker Studio pipeline. v2 emphasizes safer resume behavior, platform-aware render sizing, better logging, cleaner asset caching, and a more configurable production workflow.
+
+It still turns a single topic into a full multi-scene narrated video for **YouTube**, **TikTok**, or **News**, but now with stronger recovery, more predictable output, and a clearer path toward scalable automation.
 
 ---
 
@@ -16,7 +18,17 @@ Double-click **`run_job.bat`** and follow the interactive prompts:
 4. **Choose Platform** — outputs dynamically crop and sequence for either TikTok (`9:16`) or YouTube (`16:9`)
 5. **Confirm** — review your selections and press `Y` to start production
 
-Output lands in `/assets/renders/` as a ready-to-upload `.mp4` featuring perfectly blended crossfaded scenes.
+Output lands in `/assets/renders/` as a ready-to-upload `.mp4` featuring neatly blended crossfaded scenes.
+
+---
+
+## What’s New in v2
+
+- Platform-aware image and scene sizing for `9:16` and `16:9` outputs
+- Stronger resume support and recovered scene assembly
+- More consistent logging and error visibility across the pipeline
+- Improved `.env`/secret handling and GitHub-safe repo practice
+- A clearer roadmap toward profile-based rendering and debug-friendly builds
 
 ---
 
@@ -56,7 +68,7 @@ run_job.bat  ──►  maker_studio.py  ──►  manager.py (JobManager)
 ## Directory Structure
 
 ```
-maker/
+maeker-v2/
 ├── run_job.bat               # Interactive launcher — double-click to start
 ├── pick_voice.py             # Fetches & ranks ElevenLabs voices for selection
 ├── maker_studio.py           # Entry point — CLI argument parser
@@ -136,11 +148,21 @@ See [`55.txt`](./55.txt) for the full phased roadmap.
 | Phase 1 — Hybrid Infrastructure                      | Complete       |
 | Phase 2 — AI Creative Engine                         | Complete       |
 | Phase 3 — Production Pipeline + Interactive Launcher | Complete       |
-| Phase 4 — Scalability & Audit                        | Pending        |
-| Phase 5 — Cinematic Expansion + Voice Cloning        | In Progress    |
+| Phase 4 — Scalability & Audit                        | In Progress    |
+| Phase 5 — Cinematic Expansion + Voice Cloning        | Planned        |
+
+---
+
+## V2 Improvement Plan
+
+- Stabilize the core pipeline with stronger resume, platform-aware rendering, and safer ffmpeg assembly.
+- Standardize logging and surface ffmpeg/audio failures clearly in the job log.
+- Add runtime profiles for `fast`, `standard`, `quality`, and `debug` builds.
+- Harden `.env` handling and keep secrets out of repo history.
+- Expand CLI options for `--platform`, `--profile`, and `--no-outro`.
 
 ---
 
 
 
-_Built by Daboggieman — Maker Studio v3_
+_Built by Daboggieman — Maeker Studio v2_
