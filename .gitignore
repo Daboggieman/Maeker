@@ -11,3 +11,5 @@ logs
 venv
 tasks
 *.mp4
+.env
+*.log
